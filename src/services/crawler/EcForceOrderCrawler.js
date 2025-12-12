@@ -11,12 +11,14 @@ const EC_FORCE_SELECTORS = {
   },
   orderForm: {
     addItem: "#add_order_item",
-    productInput: '#add_item_product, input[name="add_item_product"], .modal input[type="text"]',
+    productInput:
+      '#add_item_product, input[name="add_item_product"], .modal input[type="text"]',
     modal: '.modal, .modal-dialog, [role="dialog"]',
     variantTable: "#variant-detail",
     addButton: 'button, input[type="submit"]', // Filter by text later
     shippingAddress: 'select[name="order[shipping_address_id]"]',
-    paymentMethod: 'select[name="order[payment_attributes][payment_method_id]"]',
+    paymentMethod:
+      'select[name="order[payment_attributes][payment_method_id]"]',
     creditCard: 'select[name="order[payment_attributes][source_id]"]',
     submit: "#submit",
     errorAlert: ".alert-danger",
@@ -56,11 +58,14 @@ class EcForceOrderCrawler extends BaseCrawler {
       await this.run();
       const executionTime = Date.now() - startTime;
       logger.info(
-        `Order creation completed - time: ${executionTime}ms, result: ${JSON.stringify(this.orderResult)}`
+        `Order creation completed - time: ${executionTime}ms, result: ${JSON.stringify(
+          this.orderResult
+        )}`
       );
-      return { success: true, data: this.orderResult, executionTimeMs: executionTime };
+      return { success: true, data: this.orderResult };
     } catch (error) {
       logger.error(`Order creation failed: ${error.message}`);
+      await this.handleError(error, `ec_create_order_failed_${Date.now()}`);
       throw error;
     } finally {
       await this.closeBrowser(); // Always close to prevent leaks
@@ -83,7 +88,10 @@ class EcForceOrderCrawler extends BaseCrawler {
    * Login to EC-Force admin.
    */
   async login() {
-    const maskedEmail = this.credentials.admin_email.replace(/(.{2}).+(@.+)/, "$1***$2");
+    const maskedEmail = this.credentials.admin_email.replace(
+      /(.{2}).+(@.+)/,
+      "$1***$2"
+    );
     logger.info(`Step 1: Logging in - email: ${maskedEmail}`);
 
     await this.navigateToUrl(this.shopUrl);
@@ -104,9 +112,14 @@ class EcForceOrderCrawler extends BaseCrawler {
       this.credentials.admin_password
     );
 
-    await this.page.waitForNavigation({ waitUntil: "networkidle2", timeout: 2000 }).catch(() => {});
+    await this.page
+      .waitForNavigation({ waitUntil: "networkidle2", timeout: 2000 })
+      .catch(() => {});
 
-    const hasSuccess = await this.page.evaluate((text) => document.body.textContent.includes(text), EC_FORCE_TEXTS.loginSuccess);
+    const hasSuccess = await this.page.evaluate(
+      (text) => document.body.textContent.includes(text),
+      EC_FORCE_TEXTS.loginSuccess
+    );
     if (!hasSuccess) {
       throw new CrawlerError("Login failed", ErrorCodes.LOGIN_FAILED, 401);
     }
@@ -124,7 +137,11 @@ class EcForceOrderCrawler extends BaseCrawler {
     await this.page.goto(orderFormUrl, { waitUntil: "load" });
 
     if (!(await this.elementExists(EC_FORCE_SELECTORS.orderForm.addItem))) {
-      throw new CrawlerError("Order form not found", ErrorCodes.BROWSER_NAVIGATION_FAILED, 500);
+      throw new CrawlerError(
+        "Order form not found",
+        ErrorCodes.BROWSER_NAVIGATION_FAILED,
+        500
+      );
     }
 
     logger.info("Navigated to order form");
@@ -134,7 +151,9 @@ class EcForceOrderCrawler extends BaseCrawler {
    * Fill order form.
    */
   async fillOrderForm() {
-    logger.info(`Step 3: Filling order form - product: ${this.formData.product.name}`);
+    logger.info(
+      `Step 3: Filling order form - product: ${this.formData.product.name}`
+    );
     await this.addProductToOrder();
     await this.selectShippingAddress();
     if (this.formData.credit_card_id) {
@@ -154,13 +173,20 @@ class EcForceOrderCrawler extends BaseCrawler {
 
     const isVisible = await btn.isIntersectingViewport();
     const isEnabled = await this.page.evaluate((el) => !el.disabled, btn);
-    if (!isVisible || !isEnabled) throw new Error("Add item button not clickable");
+    if (!isVisible || !isEnabled)
+      throw new Error("Add item button not clickable");
 
     await btn.click();
 
-    await this.page.waitForSelector(EC_FORCE_SELECTORS.orderForm.modal, { visible: true, timeout: 3000 });
+    await this.page.waitForSelector(EC_FORCE_SELECTORS.orderForm.modal, {
+      visible: true,
+      timeout: 3000,
+    });
 
-    const productInput = await this.page.waitForSelector(EC_FORCE_SELECTORS.orderForm.productInput, { visible: true, timeout: 3000 });
+    const productInput = await this.page.waitForSelector(
+      EC_FORCE_SELECTORS.orderForm.productInput,
+      { visible: true, timeout: 3000 }
+    );
     await productInput.click();
     await productInput.type(this.formData.product.name, { delay: 100 });
     await productInput.press("Tab");
@@ -172,8 +198,14 @@ class EcForceOrderCrawler extends BaseCrawler {
     );
 
     await this.page.evaluate((texts) => {
-      const buttons = Array.from(document.querySelectorAll('button, input[type="submit"]'));
-      const addBtn = buttons.find((btn) => btn.textContent.includes(texts.addButton) || btn.value?.includes(texts.addButton));
+      const buttons = Array.from(
+        document.querySelectorAll('button, input[type="submit"]')
+      );
+      const addBtn = buttons.find(
+        (btn) =>
+          btn.textContent.includes(texts.addButton) ||
+          btn.value?.includes(texts.addButton)
+      );
       addBtn?.click();
     }, EC_FORCE_TEXTS);
   }
@@ -183,7 +215,10 @@ class EcForceOrderCrawler extends BaseCrawler {
    */
   async selectShippingAddress() {
     logger.info(`Selecting shipping: ${this.formData.shipping_address_id}`);
-    await this.selectOption(EC_FORCE_SELECTORS.orderForm.shippingAddress, this.formData.shipping_address_id);
+    await this.selectOption(
+      EC_FORCE_SELECTORS.orderForm.shippingAddress,
+      this.formData.shipping_address_id
+    );
     logger.info("Shipping selected");
   }
 
@@ -195,7 +230,8 @@ class EcForceOrderCrawler extends BaseCrawler {
     const addr = this.formData.billing_address;
     const prefix = EC_FORCE_SELECTORS.billingPrefix;
 
-    if (addr.name) await this.fillInput(`input[name="${prefix}[name]"]`, addr.name);
+    if (addr.name)
+      await this.fillInput(`input[name="${prefix}[name]"]`, addr.name);
     await this.fillInput(`input[name="${prefix}[name01]"]`, addr.name01);
     await this.fillInput(`input[name="${prefix}[name02]"]`, addr.name02);
     await this.fillInput(`input[name="${prefix}[kana01]"]`, addr.kana01);
@@ -216,17 +252,28 @@ class EcForceOrderCrawler extends BaseCrawler {
   async selectPaymentMethod() {
     logger.info("Step 4: Selecting payment - Credit Card");
 
-    await this.page.evaluate((selectors, texts) => {
-      const paymentSelect = document.querySelector(selectors.orderForm.paymentMethod);
-      if (paymentSelect) {
-        const option = Array.from(paymentSelect.options).find(
-          (opt) => opt.text.includes(texts.paymentCredit) || opt.text.includes("credit")
+    await this.page.evaluate(
+      (selectors, texts) => {
+        const paymentSelect = document.querySelector(
+          selectors.orderForm.paymentMethod
         );
-        if (option) paymentSelect.value = option.value;
-      }
-    }, EC_FORCE_SELECTORS, EC_FORCE_TEXTS);
+        if (paymentSelect) {
+          const option = Array.from(paymentSelect.options).find(
+            (opt) =>
+              opt.text.includes(texts.paymentCredit) ||
+              opt.text.includes("credit")
+          );
+          if (option) paymentSelect.value = option.value;
+        }
+      },
+      EC_FORCE_SELECTORS,
+      EC_FORCE_TEXTS
+    );
 
-    await this.selectOption(EC_FORCE_SELECTORS.orderForm.creditCard, this.formData.credit_card_id);
+    await this.selectOption(
+      EC_FORCE_SELECTORS.orderForm.creditCard,
+      this.formData.credit_card_id
+    );
     logger.info("Payment selected");
   }
 
@@ -236,21 +283,40 @@ class EcForceOrderCrawler extends BaseCrawler {
   async submitOrder() {
     logger.info("Step 5: Submitting order");
     await this.takeScreenshot("before_submit.png");
-    await this.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await this.page.evaluate(() =>
+      window.scrollTo(0, document.body.scrollHeight)
+    );
     await this.clickElement(EC_FORCE_SELECTORS.orderForm.submit);
     await this.page.waitForNavigation({ waitUntil: "load" });
 
-    const hasError = await this.elementExists(EC_FORCE_SELECTORS.orderForm.errorAlert, 2000);
+    const hasError = await this.elementExists(
+      EC_FORCE_SELECTORS.orderForm.errorAlert,
+      2000
+    );
     if (hasError) {
-      const errorMsg = await this.page.evaluate((sel) => document.querySelector(sel)?.textContent.trim(), EC_FORCE_SELECTORS.orderForm.errorAlert);
+      const errorMsg = await this.page.evaluate(
+        (sel) => document.querySelector(sel)?.textContent.trim(),
+        EC_FORCE_SELECTORS.orderForm.errorAlert
+      );
       await this.takeScreenshot("submit_error.png");
-      throw new CrawlerError(`Submit failed: ${errorMsg || "Unknown"}`, ErrorCodes.ORDER_SUBMISSION_FAILED, 400);
+      throw new CrawlerError(
+        `Submit failed: ${errorMsg || "Unknown"}`,
+        ErrorCodes.ORDER_SUBMISSION_FAILED,
+        400
+      );
     }
 
-    const hasConfirm = await this.page.evaluate((text) => document.body.textContent.includes(text), EC_FORCE_TEXTS.confirmButton);
+    const hasConfirm = await this.page.evaluate(
+      (text) => document.body.textContent.includes(text),
+      EC_FORCE_TEXTS.confirmButton
+    );
     if (!hasConfirm) {
       await this.takeScreenshot("no_confirmation.png");
-      throw new CrawlerError("Confirmation not found", ErrorCodes.ORDER_SUBMISSION_FAILED, 500);
+      throw new CrawlerError(
+        "Confirmation not found",
+        ErrorCodes.ORDER_SUBMISSION_FAILED,
+        500
+      );
     }
 
     logger.info("Order submitted");
@@ -262,7 +328,9 @@ class EcForceOrderCrawler extends BaseCrawler {
   async confirmOrder() {
     logger.info("Step 5.5: Confirming order");
     await this.takeScreenshot("confirm.png");
-    await this.page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await this.page.evaluate(() =>
+      window.scrollTo(0, document.body.scrollHeight)
+    );
     await this.clickElement('button[type="submit"]');
     await this.page.waitForNavigation({ waitUntil: "networkidle0" });
     logger.info("Order confirmed");
@@ -275,21 +343,44 @@ class EcForceOrderCrawler extends BaseCrawler {
     logger.info(`Step 6: Extracting details - URL: ${this.page.url()}`);
     await this.takeScreenshot("before_extract.png");
 
-    if (!(await this.elementExists(EC_FORCE_SELECTORS.orderForm.performViewTd))) {
-      const errorMsg = await this.page.evaluate((sel) => document.querySelector(sel)?.textContent.trim(), EC_FORCE_SELECTORS.orderForm.errorAlert);
-      throw new CrawlerError(`Extract failed: ${errorMsg || "Unknown"}`, ErrorCodes.ORDER_VALIDATION_FAILED, 400);
+    if (
+      !(await this.elementExists(EC_FORCE_SELECTORS.orderForm.performViewTd))
+    ) {
+      const errorMsg = await this.page.evaluate(
+        (sel) => document.querySelector(sel)?.textContent.trim(),
+        EC_FORCE_SELECTORS.orderForm.errorAlert
+      );
+      throw new CrawlerError(
+        `Extract failed: ${errorMsg || "Unknown"}`,
+        ErrorCodes.ORDER_VALIDATION_FAILED,
+        400
+      );
     }
 
-    const tdTexts = await this.page.$$eval(EC_FORCE_SELECTORS.orderForm.performViewTd, (tds) => tds.map((td) => td.textContent.trim()));
+    const tdTexts = await this.page.$$eval(
+      EC_FORCE_SELECTORS.orderForm.performViewTd,
+      (tds) => tds.map((td) => td.textContent.trim())
+    );
     if (tdTexts.length < 3) {
-      throw new CrawlerError("Order table incomplete", ErrorCodes.ORDER_VALIDATION_FAILED, 500);
+      throw new CrawlerError(
+        "Order table incomplete",
+        ErrorCodes.ORDER_VALIDATION_FAILED,
+        500
+      );
     }
 
     const [orderNumber, customerNumber, total] = tdTexts;
 
-    const hasOrder = await this.page.evaluate((num) => document.body.textContent.includes(num), orderNumber);
+    const hasOrder = await this.page.evaluate(
+      (num) => document.body.textContent.includes(num),
+      orderNumber
+    );
     if (!hasOrder) {
-      throw new CrawlerError("Order number not found", ErrorCodes.ORDER_VALIDATION_FAILED, 500);
+      throw new CrawlerError(
+        "Order number not found",
+        ErrorCodes.ORDER_VALIDATION_FAILED,
+        500
+      );
     }
 
     await this.clickElement(EC_FORCE_SELECTORS.orderForm.orderLink);
@@ -314,7 +405,9 @@ class EcForceOrderCrawler extends BaseCrawler {
       created_at: new Date().toISOString(),
     };
 
-    logger.info(`Details extracted - orderNumber: ${orderNumber}, orderId: ${orderId}`);
+    logger.info(
+      `Details extracted - orderNumber: ${orderNumber}, orderId: ${orderId}`
+    );
   }
 }
 

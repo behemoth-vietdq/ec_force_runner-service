@@ -9,6 +9,7 @@ yarn.lock
 .env
 .env.local
 .env.*.local
+secret/
 
 # Logs
 logs/
