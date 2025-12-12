@@ -252,24 +252,16 @@ class BaseCrawler {
 
 ### Health Check Endpoints
 
-#### `GET /health`
+#### `GET /healthz`
 **Purpose:** Basic health check with system metrics
 
 **Response:**
 ```json
 {
-  "success": true,
-  "status": "healthy",
-  "timestamp": "2025-12-12T10:00:00.000Z",
-  "uptime": {
-    "seconds": 3600,
-    "formatted": "1h 0m 0s"
-  },
-  "memory": {
-    "rss": "150MB",
-    "heapTotal": "50MB",
-    "heapUsed": "30MB"
-  }
+  "uptime": 3600,
+  "message": "OK",
+  "timestamp": 1699960800000,
+  "environment": "development"
 }
 ```
 
@@ -421,7 +413,7 @@ class BaseCrawler {
 ## 📈 Monitoring & Observability
 
 ### Health Check Strategy
-- **Endpoint**: `GET /health`
+- **Endpoint**: `GET /healthz`
 - **Metrics**: Uptime, memory usage, response time
 - **Kubernetes Probes**: Readiness and liveness
 

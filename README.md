@@ -101,7 +101,7 @@ http://localhost:4000
 
 #### 1. Health Check
 
-**GET** `/health`
+**GET** `/healthz`
 
 Check if the service is running.
 
@@ -424,13 +424,13 @@ spec:
               key: gcs-project-id
         livenessProbe:
           httpGet:
-            path: /health
+            path: /healthz
             port: 4000
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /health
+            path: /healthz
             port: 4000
           initialDelaySeconds: 10
           periodSeconds: 5
@@ -481,7 +481,7 @@ spec:
 
 ### Health Check Endpoints
 
-- `/health` - Basic health check with system metrics
+- `/healthz` - Basic health check with system metrics
 
 ### Metrics to Monitor
 

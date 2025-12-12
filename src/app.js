@@ -61,7 +61,7 @@ const startServer = () => {
     logger.info('='.repeat(50));
     logger.info(`Environment: ${config.server.env}`);
     logger.info(`Server: http://${config.server.host}:${config.server.port}`);
-    logger.info(`Health Check: http://${config.server.host}:${config.server.port}/health`);
+    logger.info(`Health Check: http://${config.server.host}:${config.server.port}/healthz`);
     logger.info(`API Endpoint: http://${config.server.host}:${config.server.port}/api`);
     logger.info(`Headless Mode: ${config.puppeteer.headless}`);
     logger.info(`Log Level: ${config.logging.level}`);

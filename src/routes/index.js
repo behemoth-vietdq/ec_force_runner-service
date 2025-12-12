@@ -44,10 +44,7 @@ router.get("/api", (req, res) => {
     version: require("../../package.json").version,
     endpoints: {
       health: "GET /health",
-      status: "GET /health/status",
       createOrder: "POST /api/orders/create",
-      testConnection: "POST /api/orders/test-connection",
-      orderStatus: "GET /api/orders/status/:requestId",
     },
     documentation: "See README.md for detailed API documentation",
   });
