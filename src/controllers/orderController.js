@@ -33,16 +33,10 @@ class OrderController {
       // Execute crawler
       const result = await crawler.execute();
 
-      // Log success
-      logger.info(
-        `Order created successfully - orderNumber: ${result.data.order_number}, executionTime: ${result.executionTimeMs}ms`
-      );
-
       // Return response
       res.json({
         success: true,
         data: result.data,
-        execution_time_ms: result.executionTimeMs,
       });
     } catch (error) {
       logger.error(`Order creation failed - error: ${error.message}`);

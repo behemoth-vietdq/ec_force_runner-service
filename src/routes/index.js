@@ -2,6 +2,7 @@ const express = require("express");
 const rateLimit = require("express-rate-limit");
 const OrderController = require("../controllers/orderController");
 const HealthController = require("../controllers/healthController");
+const authMiddleware = require("../middleware/auth");
 const {
   createOrderSchema,
   validateRequest,
@@ -27,10 +28,12 @@ const createOrderLimiter = rateLimit({
 
 // Health check routes
 router.get("/healthz", asyncHandler(HealthController.checkHealth));
+router.get("/healthz/detailed", asyncHandler(HealthController.checkHealthDetailed));
 
 // Order routes
 router.post(
   "/api/orders/create",
+  authMiddleware,
   createOrderLimiter,
   validateRequest(createOrderSchema),
   asyncHandler(OrderController.createOrder)

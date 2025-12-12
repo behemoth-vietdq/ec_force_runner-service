@@ -3,9 +3,9 @@
 ## 📋 Project Overview
 
 **Project Name:** Line Shop Runner Service  
-**Description:** Node.js service for automating order creation on EC-Force platform using Puppeteer  
-**Technology Stack:** Node.js 18+, Express.js, Puppeteer, Winston, Docker  
-**Architecture:** REST API with browser automation backend
+**Description:** Production-ready Node.js service for automating order creation on EC-Force platform  
+**Technology Stack:** Node.js 18+, Express.js, Puppeteer, Redis, Prometheus, Kubernetes  
+**Architecture:** Distributed REST API with browser automation backend, HPA-compatible
 
 ---
 
@@ -13,8 +13,10 @@
 
 1. **Automate EC-Force Order Creation**: Programmatically create orders through web automation
 2. **Provide RESTful API**: Simple, reliable API for order management
-3. **Production Ready**: Containerized, logged, monitored, and scalable
-4. **Error Resilient**: Comprehensive error handling with retry logic and debugging support
+3. **Production Ready**: Containerized, logged, monitored, and horizontally scalable
+4. **Error Resilient**: Distributed circuit breaker with shared state across all pods
+5. **Observable**: Comprehensive Prometheus metrics for monitoring and alerting
+6. **Kubernetes Native**: HPA-compatible with proper health checks and graceful shutdown
 
 ---
 
@@ -29,33 +31,62 @@
        │ HTTP/REST
        ▼
 ┌─────────────────────────────────┐
-│   Express.js REST API           │
-│   - Routes & Controllers        │
-│   - Validation & Middleware     │
-│   - Request ID Tracking         │
+│   Kubernetes Service            │
+│   (Load Balancer)               │
 └────────────┬────────────────────┘
              │
-             ▼
-┌─────────────────────────────────┐
-│   Crawler Service Layer         │
-│   - BaseCrawler                 │
-│   - EcForceOrderCrawler         │
-└────────────┬────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────┐
-│   Puppeteer Browser Automation  │
-│   - Chrome/Chromium             │
-│   - Page Interactions           │
-│   - Screenshot Capture          │
-└─────────────────────────────────┘
-             │
-             ▼
-┌─────────────────────────────────┐
-│   EC-Force Platform             │
-│   (Target Website)              │
-└─────────────────────────────────┘
+    ┌────────┴──────────┐
+    │                   │
+    ▼                   ▼
+┌───────────┐      ┌───────────┐      ┌──────────┐
+│   Pod 1   │ .... │   Pod N   │      │  Redis   │
+│  Express  │      │  Express  │◄────►│ (Shared  │
+│  Puppeteer│      │  Puppeteer│      │  State)  │
+└─────┬─────┘      └─────┬─────┘      └──────────┘
+      │                  │
+      └──────────┬───────┘
+                 │
+                 ▼
+         ┌──────────────┐
+         │  Prometheus  │
+         │  (Metrics)   │
+         └──────────────┘
+                 │
+                 ▼
+         ┌──────────────┐
+         │   Grafana    │
+         │ (Dashboard)  │
+         └──────────────┘
 ```
+
+### Distributed System Features
+
+#### 1. **Redis-Based Circuit Breaker**
+- **Problem**: Per-pod circuit breaker causes inconsistent behavior (3 pods × 5 failures = 15 failures before all circuits open)
+- **Solution**: Shared circuit breaker state in Redis
+- **Benefits**:
+  - Consistent failure detection across all pods
+  - Circuit opens simultaneously after threshold failures
+  - Automatic recovery with half-open state testing
+  - Fallback to standalone mode if Redis unavailable
+
+#### 2. **Prometheus Metrics**
+- **HTTP Metrics**: Request duration (histogram), count (counter), in-progress (gauge)
+- **Browser Pool**: Instance count by status, wait time, lifecycle events
+- **Circuit Breaker**: State transitions, failure count, open duration
+- **Crawler**: Execution time, error rates by code, step timing
+- **Business**: Orders created/failed per shop
+- **GCS**: Upload duration and success rates
+
+#### 3. **Horizontal Pod Autoscaler (HPA)**
+- **Trigger**: 70% CPU utilization
+- **Scaling**: 2-10 pods
+- **Behavior**: 
+  - Scale up: Max 2 pods or 50% per 60s
+  - Scale down: Max 1 pod per 300s (5 minutes)
+- **Graceful Shutdown**: 120s termination period
+
+---
 
 ### Technology Stack
 
@@ -64,10 +95,13 @@
 | **Runtime** | Node.js 18+ | JavaScript runtime |
 | **Web Framework** | Express.js 4.x | REST API server |
 | **Browser Automation** | Puppeteer 24+ | Web scraping and automation |
+| **State Management** | Redis 5.x (ioredis) | Shared circuit breaker state |
+| **Monitoring** | Prometheus (prom-client) | Metrics collection |
 | **Validation** | Joi 17.x | Request data validation |
 | **Logging** | Winston 3.x | Application logging |
-| **Security** | Helmet, CORS | HTTP security headers |
+| **Security** | Helmet, CORS, Rate Limit | HTTP security |
 | **Container** | Docker | Application containerization |
+| **Orchestration** | Kubernetes 1.20+ | Container orchestration |
 | **Cloud Storage** | Google Cloud Storage | Screenshot storage |
 
 ---
@@ -246,6 +280,34 @@ class BaseCrawler {
 - Context-aware logging
 - Request ID propagation
 
+#### Circuit Breaker (`src/utils/circuitBreaker.js`) **[DISTRIBUTED]**
+- **Redis-based shared state** across all pods
+- Failure detection with configurable thresholds
+- Automatic state transitions (CLOSED → OPEN → HALF_OPEN → CLOSED)
+- Metrics integration for monitoring
+- Fallback to standalone mode without Redis
+- Two preconfigured instances:
+  - `ecforce`: For EC-Force operations (5 failures, 30s timeout, 60s reset)
+  - `gcs`: For GCS uploads (3 failures, 10s timeout, 30s reset)
+
+#### Browser Pool (`src/utils/browserPool.js`)
+- Pool of 1-5 browser instances
+- Automatic instance creation and retirement
+- Wait queue for busy periods
+- Health monitoring and auto-restart
+- Metrics for pool size and wait times
+
+#### Metrics (`src/utils/metrics.js`) **[NEW]**
+- **Prometheus metrics collection**
+- HTTP request metrics (duration histogram, count, in-progress)
+- Browser pool metrics (size by status, wait time, instances)
+- Circuit breaker metrics (state, failures, transitions, open duration)
+- Crawler metrics (execution time, errors by code, step timing, screenshots)
+- Business metrics (orders created/failed per shop)
+- GCS metrics (upload duration, success rate)
+- Express middleware integration
+- `/metrics` endpoint for Prometheus scraping
+
 ---
 
 ## 🚀 API Endpoints
@@ -264,6 +326,38 @@ class BaseCrawler {
   "environment": "development"
 }
 ```
+
+#### `GET /healthz/detailed`
+**Purpose:** Detailed health check with circuit breaker status
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "uptime": 3600,
+  "timestamp": 1699960800000,
+  "environment": "production",
+  "memory": {
+    "heapUsed": 50000000,
+    "heapTotal": 100000000,
+    "rss": 120000000
+  },
+  "circuitBreakers": [
+    {
+      "name": "ec-force",
+      "service": "ecforce",
+      "state": "CLOSED",
+      "failureCount": 0,
+      "config": { "failureThreshold": 5, "timeout": 30000 }
+    }
+  ]
+}
+```
+
+#### `GET /metrics` **[NEW]**
+**Purpose:** Prometheus metrics endpoint
+
+**Response:** Prometheus text format with all metrics
 
 ### Order Management Endpoints
 
@@ -479,26 +573,34 @@ class BaseCrawler {
 - [x] Health check endpoints
 - [x] Request ID tracking
 
-### Phase 2 (Production Ready)
-- [ ] API authentication (API keys)
-- [ ] Rate limiting
-- [ ] Queue system (Redis/Bull)
+### Phase 2 (Production Ready) **[COMPLETED]**
+- [x] API authentication (API keys)
+- [x] Rate limiting
+- [x] Input sanitization
+- [x] Kubernetes deployment with HPA
+- [x] **Distributed circuit breaker with Redis**
+- [x] **Prometheus metrics integration**
+- [x] Browser pooling
+- [x] Graceful shutdown
+- [x] Detailed health checks with circuit breaker status
+- [x] Screenshot upload to GCS with signed URLs
+- [x] Comprehensive logging with request tracking
+
+### Phase 3 (Future Enhancements)
+- [ ] Queue system (Redis/Bull) for async processing
 - [ ] Database for order history
 - [ ] Webhook notifications
-
-### Phase 3 (Advanced Features)
 - [ ] Multi-platform support (other e-commerce platforms)
 - [ ] Batch order processing
-- [ ] Web dashboard for monitoring
+- [ ] Web dashboard for monitoring (Grafana dashboards)
 - [ ] Advanced analytics
-- [ ] Caching layer
 
 ### Phase 4 (Enterprise)
 - [ ] Multi-tenancy support
 - [ ] Role-based access control
 - [ ] Advanced scheduling
-- [ ] Prometheus metrics
 - [ ] OpenAPI/Swagger documentation
+- [ ] Distributed tracing (Jaeger/Zipkin)
 
 ---
 
@@ -518,10 +620,203 @@ class BaseCrawler {
 3. View logs: `make docker-logs`
 4. Stop container: `make docker-down`
 
+### Kubernetes Deployment **[PRODUCTION-READY]**
+
+#### Prerequisites
+- Kubernetes cluster 1.20+
+- kubectl configured
+- Docker registry access
+- Redis instance (managed or self-hosted)
+- Prometheus (for metrics scraping)
+
+#### Deployment Steps
+
+1. **Create namespace:**
+```bash
+kubectl create namespace line-shop-runner
+```
+
+2. **Create secrets:**
+```bash
+# API Key
+kubectl create secret generic line-shop-runner-secret \
+  --from-literal=API_KEY=your-secret-api-key \
+  --namespace line-shop-runner
+
+# Redis (if password required)
+kubectl create secret generic redis-secret \
+  --from-literal=REDIS_PASSWORD=your-redis-password \
+  --namespace line-shop-runner
+
+# GCS Service Account (optional)
+kubectl create secret generic gcs-key \
+  --from-file=key.json=/path/to/service-account-key.json \
+  --namespace line-shop-runner
+```
+
+3. **Configure ConfigMap:**
+```bash
+kubectl apply -f k8s/configmap.yaml
+```
+
+Edit `k8s/configmap.yaml` with your configuration:
+```yaml
+data:
+  APP_ENV: "production"
+  REDIS_URL: "redis://redis-service:6379"
+  METRICS_ENABLED: "true"
+  CRAWLER_DEBUGGING: "false"
+  # ... other configs
+```
+
+4. **Deploy application:**
+```bash
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+kubectl apply -f k8s/hpa.yaml
+```
+
+5. **Verify deployment:**
+```bash
+# Check pods
+kubectl get pods -n line-shop-runner
+
+# Check HPA
+kubectl get hpa -n line-shop-runner
+
+# Check service
+kubectl get svc -n line-shop-runner
+
+# Check logs
+kubectl logs -f deployment/line-shop-runner -n line-shop-runner
+```
+
+6. **Test health check:**
+```bash
+kubectl port-forward svc/line-shop-runner 8080:4000 -n line-shop-runner
+curl http://localhost:8080/healthz
+curl http://localhost:8080/healthz/detailed
+```
+
+#### Monitoring Setup
+
+1. **Configure Prometheus scraping:**
+```yaml
+# prometheus-config.yaml
+scrape_configs:
+  - job_name: 'line-shop-runner'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - line-shop-runner
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_pod_label_app]
+        action: keep
+        regex: line-shop-runner
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+```
+
+2. **Import Grafana dashboards:**
+- HTTP request metrics dashboard
+- Circuit breaker status dashboard
+- Browser pool monitoring dashboard
+- Business metrics (orders per shop)
+
+3. **Set up alerts:**
+```yaml
+# Example Prometheus alert rules
+groups:
+  - name: line-shop-runner
+    rules:
+      - alert: CircuitBreakerOpen
+        expr: circuit_breaker_state{state="OPEN"} > 0
+        for: 5m
+        annotations:
+          summary: "Circuit breaker is open for {{ $labels.service }}"
+      
+      - alert: HighErrorRate
+        expr: rate(http_requests_total{status=~"5.."}[5m]) > 0.1
+        for: 5m
+        annotations:
+          summary: "High error rate detected"
+      
+      - alert: BrowserPoolExhausted
+        expr: browser_pool_wait_time_seconds > 30
+        for: 2m
+        annotations:
+          summary: "Browser pool wait time is too high"
+```
+
+#### Scaling Configuration
+
+**Current HPA Settings:**
+- Min replicas: 2
+- Max replicas: 10
+- Target CPU: 70%
+- Scale up: Max 2 pods or 50% every 60s
+- Scale down: Max 1 pod every 300s (5 min)
+
+**Tuning Recommendations:**
+- **Light load** (< 100 req/min): 2-3 pods, 80% CPU
+- **Medium load** (100-500 req/min): 3-6 pods, 70% CPU
+- **Heavy load** (> 500 req/min): 6-10 pods, 60% CPU
+
+**Resource Recommendations:**
+```yaml
+resources:
+  requests:
+    cpu: 500m        # Guaranteed CPU
+    memory: 1Gi      # Guaranteed memory
+  limits:
+    cpu: 1000m       # Max CPU (1 core)
+    memory: 2Gi      # Max memory
+```
+
+#### Troubleshooting Production
+
+**Pod crashes:**
+```bash
+kubectl logs -n line-shop-runner <pod-name> --previous
+kubectl describe pod -n line-shop-runner <pod-name>
+```
+
+**Circuit breaker issues:**
+```bash
+# Check Redis connectivity
+kubectl exec -it deployment/line-shop-runner -n line-shop-runner -- sh
+# Inside pod:
+redis-cli -h redis-service ping
+```
+
+**Metrics not showing:**
+```bash
+# Test metrics endpoint
+kubectl port-forward svc/line-shop-runner 9090:4000 -n line-shop-runner
+curl http://localhost:9090/metrics
+
+# Check Prometheus targets
+# Navigate to Prometheus UI → Status → Targets
+```
+
+**HPA not scaling:**
+```bash
+# Check metrics-server
+kubectl get --raw /apis/metrics.k8s.io/v1beta1/nodes
+
+# Check HPA status
+kubectl describe hpa line-shop-runner -n line-shop-runner
+
+# View current metrics
+kubectl top pods -n line-shop-runner
+```
+
 ### Code Quality
 - No linting (simplified project)
-- No testing (focus on core functionality)
+- No unit tests (focus on core functionality)
 - Manual QA testing recommended
+- Production monitoring via Prometheus/Grafana
 
 ---
 

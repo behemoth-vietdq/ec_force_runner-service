@@ -1,25 +1,42 @@
 # Line Shop Runner Service
 
-A robust Node.js service for automating order creation on EC-Force platform using Puppeteer. This service provides a RESTful API to create orders programmatically through browser automation.
+A production-ready Node.js service for automating order creation on EC-Force platform using Puppeteer. Designed for Kubernetes deployment with horizontal scaling, shared circuit breaker state, and comprehensive monitoring.
 
 ## 🚀 Features
 
+### Core Features
 - **Browser Automation**: Powered by Puppeteer for reliable web automation
 - **RESTful API**: Simple and intuitive API endpoints
+- **Browser Pooling**: Efficient browser instance management (1-5 instances)
 - **Error Handling**: Comprehensive error handling with automatic screenshots
-- **Retry Logic**: Automatic retries for failed operations
+- **Retry Logic**: Automatic retries for failed operations with exponential backoff
 - **Logging**: Detailed logging with Winston and async context tracking
-- **Docker Support**: Easy deployment with Docker
-- **Health Checks**: Health check endpoints for monitoring
-- **Validation**: Request validation with Joi
-- **GCS Integration**: Screenshot upload to Google Cloud Storage
+
+### Production Features
+- **🔄 Distributed Circuit Breaker**: Redis-based shared state across all pods
+- **📊 Prometheus Metrics**: Comprehensive metrics for monitoring and alerting
+- **☸️ Kubernetes Ready**: HPA-compatible with proper health checks
+- **🔒 Security**: API key authentication, rate limiting, input sanitization, Helmet, CORS
+- **📸 GCS Integration**: Screenshot upload to Google Cloud Storage with signed URLs
+- **🏥 Health Checks**: `/healthz` and `/healthz/detailed` endpoints
+- **🐳 Docker Support**: Production-ready containerization
+
+### Observability & Monitoring
+- HTTP request metrics (duration, count, in-progress)
+- Browser pool metrics (size by status, wait time, lifecycle)
+- Circuit breaker metrics (state, failures, transitions, open duration)
+- Crawler metrics (execution time, errors, step timing)
+- Business metrics (orders created/failed by shop)
+- GCS upload metrics (duration, success rate)
 
 ## 📋 Requirements
 
 - Node.js >= 18.0.0
 - npm
 - Chrome/Chromium (automatically installed by Puppeteer)
+- Redis (for distributed circuit breaker) - Optional but recommended for multi-pod deployments
 - Google Cloud Storage (optional, for screenshot storage)
+- Kubernetes 1.20+ (for production deployment)
 
 ## 🛠️ Installation
 
@@ -48,9 +65,19 @@ cp .env.example .env
 # Application settings
 APP_ENV=development
 APP_PORT=4000
+API_KEY=your-secret-api-key
 
 # Crawler settings
 CRAWLER_DEBUGGING=true
+
+# Redis (for distributed circuit breaker)
+REDIS_URL=redis://localhost:6379
+REDIS_PASSWORD=
+REDIS_DB=0
+
+# Metrics
+METRICS_ENABLED=true
+METRICS_PATH=/metrics
 
 # Google Cloud Storage (optional)
 GCS_BUCKET_NAME=your-bucket-name
@@ -88,6 +115,23 @@ make docker-up
 docker-compose logs -f
 # or
 make docker-logs
+```
+
+### Kubernetes Deployment
+
+For production Kubernetes deployment with HPA, see [PLAN.md](PLAN.md) for detailed instructions.
+
+```bash
+# Deploy all resources
+kubectl apply -f k8s/
+
+# Check deployment
+kubectl get pods
+kubectl get hpa
+
+# View metrics
+kubectl port-forward svc/line-shop-runner 9090:4000
+curl http://localhost:9090/metrics
 ```
 
 ## 📚 API Documentation
@@ -235,6 +279,41 @@ Get the status of an order creation request.
 }
 ```
 
+#### 5. Prometheus Metrics (NEW)
+
+**GET** `/metrics`
+
+Prometheus-compatible metrics endpoint for monitoring.
+
+**Response:**
+```
+# HELP http_request_duration_seconds HTTP request duration in seconds
+# TYPE http_request_duration_seconds histogram
+http_request_duration_seconds_bucket{method="POST",route="/api/orders/create",status="200",le="0.1"} 45
+http_request_duration_seconds_bucket{method="POST",route="/api/orders/create",status="200",le="0.5"} 120
+...
+
+# HELP circuit_breaker_state Circuit breaker state (0=CLOSED, 1=HALF_OPEN, 2=OPEN)
+# TYPE circuit_breaker_state gauge
+circuit_breaker_state{service="ecforce",name="ec-force"} 0
+
+# HELP browser_pool_size Current browser pool size by status
+# TYPE browser_pool_size gauge
+browser_pool_size{status="idle"} 3
+browser_pool_size{status="busy"} 2
+...
+```
+
+**Usage with Prometheus:**
+```yaml
+scrape_configs:
+  - job_name: 'line-shop-runner'
+    static_configs:
+      - targets: ['line-shop-runner:4000']
+    metrics_path: '/metrics'
+    scrape_interval: 15s
+```
+
 ## 🔧 Configuration
 
 Configuration is managed through environment variables. See `.env.example` for all available options.
@@ -245,10 +324,40 @@ Configuration is managed through environment variables. See `.env.example` for a
 |----------|-------------|---------|
 | `APP_ENV` | Environment (development/production) | development |
 | `APP_PORT` | Server port | 4000 |
+| `API_KEY` | API authentication key | - |
+| `REDIS_URL` | Redis URL for circuit breaker | redis://localhost:6379 |
+| `REDIS_PASSWORD` | Redis password (optional) | - |
+| `REDIS_DB` | Redis database number | 0 |
+| `METRICS_ENABLED` | Enable Prometheus metrics | true |
+| `METRICS_PATH` | Metrics endpoint path | /metrics |
 | `CRAWLER_DEBUGGING` | Enable debugging mode | false |
 | `GCS_BUCKET_NAME` | Google Cloud Storage bucket name | - |
 | `GCS_KEY_FILE` | Path to GCS service account key | - |
 | `GCS_PROJECT_ID` | Google Cloud Project ID | - |
+
+## 🏗️ Architecture
+
+### Distributed System Features
+
+#### Redis-Based Circuit Breaker
+- **Shared State**: All pods share circuit breaker state via Redis
+- **Consistent Behavior**: Circuit opens simultaneously across all pods after threshold failures
+- **Automatic Recovery**: Half-open state tests service recovery
+- **Fallback Mode**: Works in standalone mode without Redis
+
+#### Prometheus Metrics
+- **HTTP Metrics**: Request duration, count, in-progress tracking
+- **Browser Pool**: Instance lifecycle, wait times, status distribution
+- **Circuit Breaker**: State changes, failure counts, open duration
+- **Crawler**: Execution time, error rates, step timing
+- **Business**: Orders created/failed by shop
+- **GCS**: Upload performance and success rates
+
+#### Horizontal Pod Autoscaling (HPA)
+- **CPU-Based Scaling**: 70% CPU threshold
+- **Pod Limits**: 2-10 pods
+- **Stabilization**: 60s scale-up, 300s scale-down
+- **Graceful Shutdown**: 120s termination period
 
 ## 📁 Project Structure
 

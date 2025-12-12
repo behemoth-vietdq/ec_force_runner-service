@@ -9,6 +9,7 @@ const { requestContextMiddleware } = require('./utils/asyncContext');
 const requestLogger = require('./middleware/requestLogger');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { cleanupOldScreenshots } = require('./utils/screenshot');
+const { getBrowserPool } = require('./utils/browserPool');
 
 // Create Express app
 const app = express();
@@ -18,9 +19,10 @@ app.use(helmet());
 
 // CORS configuration
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: config.server.corsOrigin,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-API-Key', 'X-Request-Id'],
+  credentials: true,
 }));
 
 // Body parser middleware
@@ -54,7 +56,18 @@ setInterval(() => {
 }, 24 * 60 * 60 * 1000);
 
 // Start server
-const startServer = () => {
+const startServer = async () => {
+  // Initialize browser pool
+  try {
+    logger.info('Initializing browser pool...');
+    const browserPool = getBrowserPool();
+    await browserPool.initialize();
+    logger.info('Browser pool initialized successfully');
+  } catch (error) {
+    logger.error('Failed to initialize browser pool:', error);
+    logger.warn('Service will start without browser pool');
+  }
+
   const server = app.listen(config.server.port, config.server.host, () => {
     logger.info('='.repeat(50));
     logger.info('🚀 Line Shop Runner Service started successfully');
@@ -69,14 +82,20 @@ const startServer = () => {
   });
 
   // Graceful shutdown
-  const gracefulShutdown = (signal) => {
+  const gracefulShutdown = async (signal) => {
     logger.info(`${signal} received. Starting graceful shutdown...`);
     
-    server.close(() => {
+    server.close(async () => {
       logger.info('HTTP server closed');
       
-      // Close any active browser instances
-      // This will be handled by individual crawler instances
+      // Shutdown browser pool
+      try {
+        const browserPool = getBrowserPool();
+        await browserPool.shutdown();
+        logger.info('Browser pool shut down successfully');
+      } catch (error) {
+        logger.error('Error shutting down browser pool:', error);
+      }
       
       logger.info('Graceful shutdown completed');
       process.exit(0);

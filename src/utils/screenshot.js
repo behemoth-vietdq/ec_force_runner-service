@@ -2,6 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const config = require("../config");
 const logger = require("./logger");
+const { getCircuitBreaker } = require("./circuitBreaker");
 
 // Google Cloud Storage client (lazy init)
 let storageClient = null;
@@ -32,34 +33,48 @@ function initGCSClient() {
 }
 
 /**
- * Upload file to Google Cloud Storage
+ * Upload file to Google Cloud Storage with signed URL and circuit breaker protection
  * @param {string} localPath - Local file path
  * @param {string} filename - Destination filename in GCS
- * @returns {Promise<string|null>} Public URL or null
+ * @returns {Promise<string|null>} Signed URL or null
  */
 async function uploadToGCS(localPath, filename) {
   const storage = initGCSClient();
   if (!storage) return null;
 
+  const circuitBreaker = getCircuitBreaker('gcs');
+
   try {
-    const bucket = storage.bucket(config.gcs.bucketName);
-    const blob = bucket.file(`${filename}`);
+    // Execute upload with circuit breaker protection
+    return await circuitBreaker.execute(async () => {
+      const bucket = storage.bucket(config.gcs.bucketName);
+      const blob = bucket.file(`${filename}`);
 
-    await bucket.upload(localPath, {
-      destination: `${filename}`,
-      metadata: {
-        contentType: "image/png",
-      },
+      await bucket.upload(localPath, {
+        destination: `${filename}`,
+        metadata: {
+          contentType: "image/png",
+        },
+      });
+
+      // Generate signed URL instead of making public
+      const expiry = Date.now() + (config.gcs.signedUrlExpiry || 3600000);
+      const [signedUrl] = await blob.getSignedUrl({
+        action: 'read',
+        expires: expiry,
+      });
+
+      logger.info(`Screenshot uploaded to GCS with signed URL (expires in ${Math.floor((config.gcs.signedUrlExpiry || 3600000) / 60000)} minutes)`);
+
+      return signedUrl;
     });
-
-    // Make file public
-    await blob.makePublic();
-
-    const publicUrl = `https://storage.googleapis.com/${config.gcs.bucketName}/${filename}`;
-    logger.info(`Screenshot uploaded to GCS: ${publicUrl}`);
-
-    return publicUrl;
   } catch (error) {
+    // Handle circuit breaker errors
+    if (error.code === 'CIRCUIT_OPEN') {
+      logger.warn('GCS circuit breaker is OPEN, upload skipped');
+      return null;
+    }
+    
     logger.error("Failed to upload to GCS:", error);
     return null;
   }

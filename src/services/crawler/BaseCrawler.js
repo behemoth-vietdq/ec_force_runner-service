@@ -6,6 +6,7 @@ const {
   saveScreenshot,
 } = require("../../utils/screenshot");
 const { CrawlerError, ErrorCodes } = require("../../middleware/errorHandler");
+const { getBrowserPool } = require("../../utils/browserPool");
 
 /**
  * Base Crawler class with common functionality.
@@ -17,10 +18,12 @@ class BaseCrawler {
     this.page = null;
     this.options = { ...config.puppeteer, ...options };
     this.startTime = Date.now();
+    this.usePool = options.usePool !== false; // Use pool by default
+    this.pooledBrowser = false;
   }
 
   /**
-   * Initialize browser instance.
+   * Initialize browser instance with optional pooling.
    * @throws {CrawlerError} If browser launch fails.
    */
   async initBrowser() {
@@ -29,25 +32,35 @@ class BaseCrawler {
       const headless = isProduction || process.env.DOCKER_ENV === "true";
 
       logger.info(
-        `Initializing browser - headless: ${headless}, timeout: ${this.options.timeout}`
+        `Initializing browser - pooling: ${this.usePool}, headless: ${headless}, timeout: ${this.options.timeout}`
       );
 
-      this.browser = await puppeteer.launch({
-        headless,
-        args: [
-          "--no-sandbox",
-          "--disable-setuid-sandbox",
-          "--disable-dev-shm-usage",
-          "--disable-accelerated-2d-canvas",
-          "--no-first-run",
-          "--no-zygote",
-          "--disable-gpu",
-          "--disable-web-security",
-          "--disable-features=VizDisplayCompositor",
-          ...(this.options.args || []),
-        ],
-        defaultViewport: this.options.defaultViewport,
-      });
+      if (this.usePool) {
+        // Use browser pool for better performance
+        const pool = getBrowserPool();
+        this.browser = await pool.acquire();
+        this.pooledBrowser = true;
+        logger.debug('Using pooled browser instance');
+      } else {
+        // Launch new browser instance
+        this.browser = await puppeteer.launch({
+          headless,
+          args: [
+            "--no-sandbox",
+            "--disable-setuid-sandbox",
+            "--disable-dev-shm-usage",
+            "--disable-accelerated-2d-canvas",
+            "--no-first-run",
+            "--no-zygote",
+            "--disable-gpu",
+            "--disable-web-security",
+            "--disable-features=VizDisplayCompositor",
+            ...(this.options.args || []),
+          ],
+          defaultViewport: this.options.defaultViewport,
+        });
+        logger.debug('Launched new browser instance');
+      }
 
       this.page = await this.browser.newPage();
 
@@ -79,18 +92,27 @@ class BaseCrawler {
   }
 
   /**
-   * Close browser instance safely.
+   * Close browser instance safely with pool support.
    */
   async closeBrowser() {
     if (this.browser) {
       try {
-        await this.browser.close();
-        logger.info("Browser closed successfully");
+        if (this.pooledBrowser) {
+          // Return browser to pool instead of closing
+          const pool = getBrowserPool();
+          await pool.release(this.browser);
+          logger.info("Browser returned to pool");
+        } else {
+          // Close standalone browser
+          await this.browser.close();
+          logger.info("Browser closed successfully");
+        }
       } catch (error) {
         logger.error("Error closing browser:", error);
       } finally {
         this.browser = null;
         this.page = null;
+        this.pooledBrowser = false;
       }
     }
   }

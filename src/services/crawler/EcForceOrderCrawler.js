@@ -1,6 +1,8 @@
 const BaseCrawler = require("./BaseCrawler");
 const logger = require("../../utils/logger");
 const { CrawlerError, ErrorCodes } = require("../../middleware/errorHandler");
+const { sanitizeUrl, sanitizeCustomerId } = require("../../utils/sanitizer");
+const { getCircuitBreaker } = require("../../utils/circuitBreaker");
 
 // Centralize selectors and texts for easy maintenance
 const EC_FORCE_SELECTORS = {
@@ -38,24 +40,43 @@ const EC_FORCE_TEXTS = {
 class EcForceOrderCrawler extends BaseCrawler {
   constructor(options = {}) {
     super(options);
-    this.shopUrl = options.shopUrl;
-    this.credentials = options.credentials;
-    this.formData = options.formData;
-    this.orderResult = null;
+    
+    // Sanitize inputs
+    try {
+      this.shopUrl = sanitizeUrl(options.shopUrl);
+      this.credentials = options.credentials;
+      this.formData = {
+        ...options.formData,
+        customer_id: sanitizeCustomerId(options.formData?.customer_id),
+      };
+      this.orderResult = null;
+    } catch (error) {
+      throw new CrawlerError(
+        `Invalid input: ${error.message}`,
+        ErrorCodes.VALIDATION_ERROR,
+        400
+      );
+    }
   }
 
   /**
-   * Main execution method.
+   * Main execution method with circuit breaker protection.
    * @returns {Object} Success result or throws error.
    */
   async execute() {
     const startTime = Date.now();
     logger.info("Starting EC-Force order creation process");
 
+    const circuitBreaker = getCircuitBreaker('ecforce');
+    
     try {
-      await this.initBrowser();
-      await this.page.setViewport({ width: 1920, height: 1080 });
-      await this.run();
+      // Execute with circuit breaker protection
+      await circuitBreaker.execute(async () => {
+        await this.initBrowser();
+        await this.page.setViewport({ width: 1920, height: 1080 });
+        await this.run();
+      });
+      
       const executionTime = Date.now() - startTime;
       logger.info(
         `Order creation completed - time: ${executionTime}ms, result: ${JSON.stringify(
@@ -64,6 +85,23 @@ class EcForceOrderCrawler extends BaseCrawler {
       );
       return { success: true, data: this.orderResult };
     } catch (error) {
+      // Handle circuit breaker errors
+      if (error.code === 'CIRCUIT_OPEN') {
+        throw new CrawlerError(
+          'EC-Force service temporarily unavailable due to repeated failures',
+          ErrorCodes.CRAWLER_CIRCUIT_OPEN,
+          { lastError: error.lastError }
+        );
+      }
+      
+      if (error.code === 'CIRCUIT_TIMEOUT') {
+        throw new CrawlerError(
+          'EC-Force operation timeout',
+          ErrorCodes.CRAWLER_TIMEOUT,
+          { timeout: error.message }
+        );
+      }
+      
       logger.error(`Order creation failed: ${error.message}`);
       await this.handleError(error, `ec_create_order_failed_${Date.now()}`);
       throw error;
