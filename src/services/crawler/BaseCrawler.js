@@ -28,7 +28,9 @@ class BaseCrawler {
       const isProduction = process.env.NODE_ENV === "production";
       const headless = isProduction || process.env.DOCKER_ENV === "true";
 
-      logger.info(`Initializing browser - headless: ${headless}, timeout: ${this.options.timeout}`);
+      logger.info(
+        `Initializing browser - headless: ${headless}, timeout: ${this.options.timeout}`
+      );
 
       this.browser = await puppeteer.launch({
         headless,
@@ -56,15 +58,17 @@ class BaseCrawler {
       this.page.setDefaultTimeout(this.options.timeout);
 
       // Log console, errors, and failed requests if debug enabled
-      if (config.debug.enabled) {
-        this.page.on("console", (msg) => logger.debug(`Browser console [${msg.type()}]: ${msg.text()}`));
+      if (config.crawler.debugging) {
+        this.page.on("console", (msg) =>
+          logger.debug(`Browser console [${msg.type()}]: ${msg.text()}`)
+        );
       }
       this.page.on("pageerror", (error) => logger.error("Page error:", error));
 
       logger.info("Browser initialized successfully");
       return this.page;
     } catch (error) {
-      logger.error("Failed to initialize browser:", error);
+      logger.error(`Failed to initialize browser: ${error}`);
       throw new CrawlerError(
         "Failed to initialize browser",
         ErrorCodes.BROWSER_INIT_FAILED,
@@ -99,7 +103,10 @@ class BaseCrawler {
   async navigateToUrl(url) {
     try {
       logger.info(`Navigating to: ${url}`);
-      await this.page.goto(url, { waitUntil: "networkidle2", timeout: this.options.timeout });
+      await this.page.goto(url, {
+        waitUntil: "networkidle2",
+        timeout: this.options.timeout,
+      });
       logger.info("Navigation successful");
     } catch (error) {
       await this.handleError(error, "navigation_failed");
@@ -120,14 +127,21 @@ class BaseCrawler {
    * @throws {CrawlerError} If element not found.
    */
   async waitForElement(selector, options = {}) {
-    const waitOptions = { visible: true, timeout: this.options.timeout, ...options };
+    const waitOptions = {
+      visible: true,
+      timeout: this.options.timeout,
+      ...options,
+    };
     try {
       logger.debug(`Waiting for element: ${selector}`);
       const element = await this.page.waitForSelector(selector, waitOptions);
       logger.debug(`Element found: ${selector}`);
       return element;
     } catch (error) {
-      await this.handleError(error, `element_not_found_${selector.replace(/[^a-zA-Z0-9]/g, "_")}`);
+      await this.handleError(
+        error,
+        `element_not_found_${selector.replace(/[^a-zA-Z0-9]/g, "_")}`
+      );
       throw new CrawlerError(
         `Element not found: ${selector}`,
         ErrorCodes.ELEMENT_NOT_FOUND,
@@ -149,23 +163,34 @@ class BaseCrawler {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const element = await this.waitForElement(selector, options);
-        await this.page.evaluate((el) => el.scrollIntoView({ behavior: "smooth", block: "center" }), element);
+        await this.page.evaluate(
+          (el) => el.scrollIntoView({ behavior: "smooth", block: "center" }),
+          element
+        );
         await this.sleep(300);
         await element.click();
         logger.debug(`Element clicked: ${selector}`);
         return;
       } catch (error) {
         lastError = error;
-        logger.warn(`Click attempt ${attempt} failed for ${selector}: ${error.message}`);
+        logger.warn(
+          `Click attempt ${attempt} failed for ${selector}: ${error.message}`
+        );
         if (attempt < maxRetries) await this.sleep(config.crawler.retryDelayMs);
       }
     }
     // Fallback JS click
     try {
-      await this.page.evaluate((sel) => document.querySelector(sel)?.click(), selector);
+      await this.page.evaluate(
+        (sel) => document.querySelector(sel)?.click(),
+        selector
+      );
       logger.info(`JS click successful: ${selector}`);
     } catch {
-      await this.handleError(lastError, `click_failed_${selector.replace(/[^a-zA-Z0-9]/g, "_")}`);
+      await this.handleError(
+        lastError,
+        `click_failed_${selector.replace(/[^a-zA-Z0-9]/g, "_")}`
+      );
       throw new CrawlerError(
         `Failed to click ${selector} after ${maxRetries} attempts`,
         ErrorCodes.ELEMENT_INTERACTION_FAILED,
@@ -189,7 +214,10 @@ class BaseCrawler {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         const element = await this.waitForElement(selector, options);
-        await this.page.evaluate((el) => el.scrollIntoView({ behavior: "smooth", block: "center" }), element);
+        await this.page.evaluate(
+          (el) => el.scrollIntoView({ behavior: "smooth", block: "center" }),
+          element
+        );
         await this.sleep(200);
         await element.click();
         await this.sleep(100);
@@ -200,7 +228,10 @@ class BaseCrawler {
         }, selector);
         await element.type(value, { delay: 50 });
         // Verify
-        const actual = await this.page.evaluate((sel) => document.querySelector(sel)?.value, selector);
+        const actual = await this.page.evaluate(
+          (sel) => document.querySelector(sel)?.value,
+          selector
+        );
         if (actual === value) {
           logger.debug(`Input filled: ${selector} = ${value}`);
           return;
@@ -212,7 +243,10 @@ class BaseCrawler {
         if (attempt < maxRetries) await this.sleep(500);
       }
     }
-    await this.handleError(lastError, `fill_failed_${selector.replace(/[^a-zA-Z0-9]/g, "_")}`);
+    await this.handleError(
+      lastError,
+      `fill_failed_${selector.replace(/[^a-zA-Z0-9]/g, "_")}`
+    );
     throw new CrawlerError(
       `Failed to fill ${selector} after ${maxRetries} attempts`,
       ErrorCodes.ELEMENT_INTERACTION_FAILED,
@@ -234,7 +268,10 @@ class BaseCrawler {
       await this.page.select(selector, value);
       logger.debug(`Option selected: ${selector} = ${value}`);
     } catch (error) {
-      await this.handleError(error, `select_failed_${selector.replace(/[^a-zA-Z0-9]/g, "_")}`);
+      await this.handleError(
+        error,
+        `select_failed_${selector.replace(/[^a-zA-Z0-9]/g, "_")}`
+      );
       throw new CrawlerError(
         `Failed to select ${selector}`,
         ErrorCodes.ELEMENT_INTERACTION_FAILED,
@@ -268,7 +305,9 @@ class BaseCrawler {
    * @param {string} context - Error context.
    */
   async handleError(error, context = "") {
-    logger.error(`Error in ${context}: ${error.message}\nStack: ${error.stack}`);
+    logger.error(
+      `Error in ${context}: ${error.message}\nStack: ${error.stack}`
+    );
     if (this.page && config.screenshots.enabled) {
       await saveErrorScreenshot(this.page, error, context);
     }
@@ -305,7 +344,11 @@ class BaseCrawler {
    * @returns {any} Result of fn.
    * @throws {Error} If all retries fail.
    */
-  async withRetry(fn, maxAttempts = config.crawler.maxRetries, delayMs = config.crawler.retryDelayMs) {
+  async withRetry(
+    fn,
+    maxAttempts = config.crawler.maxRetries,
+    delayMs = config.crawler.retryDelayMs
+  ) {
     let lastError;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {

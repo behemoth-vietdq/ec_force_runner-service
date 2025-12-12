@@ -58,7 +58,7 @@ class EcForceOrderCrawler extends BaseCrawler {
       logger.info(
         `Order creation completed - time: ${executionTime}ms, result: ${JSON.stringify(this.orderResult)}`
       );
-      return { success: true, data: this.orderResult };
+      return { success: true, data: this.orderResult, executionTimeMs: executionTime };
     } catch (error) {
       logger.error(`Order creation failed: ${error.message}`);
       throw error;

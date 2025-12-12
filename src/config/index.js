@@ -1,10 +1,10 @@
-require('dotenv').config();
+require("dotenv").config();
 
 module.exports = {
   server: {
     port: process.env.APP_PORT || 3000,
-    host: '0.0.0.0',
-    env: process.env.APP_ENV || 'development',
+    host: "0.0.0.0",
+    env: process.env.APP_ENV || "development",
   },
 
   puppeteer: {
@@ -14,13 +14,13 @@ module.exports = {
   },
 
   logging: {
-    level: 'info',
-    file: './logs/app.log',
+    level: "info",
+    file: "./logs/app.log",
   },
 
   screenshots: {
     enabled: true,
-    path: './screenshots',
+    path: "./screenshots",
   },
 
   security: {
@@ -32,7 +32,7 @@ module.exports = {
   crawler: {
     maxRetries: 3,
     retryDelayMs: 2000,
-    debugging: process.env.CRAWLER_DEBUGGING === 'true',
+    debugging: process.env.CRAWLER_DEBUGGING === "true",
   },
 
   gcs: {
