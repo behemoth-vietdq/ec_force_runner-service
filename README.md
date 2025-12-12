@@ -8,18 +8,18 @@ A robust Node.js service for automating order creation on EC-Force platform usin
 - **RESTful API**: Simple and intuitive API endpoints
 - **Error Handling**: Comprehensive error handling with automatic screenshots
 - **Retry Logic**: Automatic retries for failed operations
-- **Rate Limiting**: Built-in rate limiting to prevent abuse
-- **Logging**: Detailed logging with Winston
+- **Logging**: Detailed logging with Winston and async context tracking
 - **Docker Support**: Easy deployment with Docker
-- **Health Checks**: Kubernetes-ready health check endpoints
-- **API Authentication**: Simple API key authentication
+- **Health Checks**: Health check endpoints for monitoring
 - **Validation**: Request validation with Joi
+- **GCS Integration**: Screenshot upload to Google Cloud Storage
 
 ## 📋 Requirements
 
 - Node.js >= 18.0.0
-- npm or yarn
+- npm
 - Chrome/Chromium (automatically installed by Puppeteer)
+- Google Cloud Storage (optional, for screenshot storage)
 
 ## 🛠️ Installation
 
@@ -45,12 +45,17 @@ cp .env.example .env
 
 4. Edit `.env` file with your configuration:
 ```bash
-# Set your API key
-API_KEY=your-secure-api-key-here
+# Application settings
+APP_ENV=development
+APP_PORT=4000
 
-# Configure other settings as needed
-HEADLESS=true
-LOG_LEVEL=info
+# Crawler settings
+CRAWLER_DEBUGGING=true
+
+# Google Cloud Storage (optional)
+GCS_BUCKET_NAME=your-bucket-name
+GCS_KEY_FILE=/path/to/service-account-key.json
+GCS_PROJECT_ID=your-project-id
 ```
 
 5. Start the service:
@@ -89,20 +94,7 @@ make docker-logs
 
 ### Base URL
 ```
-http://localhost:3000
-```
-
-### Authentication
-
-All API endpoints (except health checks) require an API key. Include it in the request header:
-
-```
-X-API-Key: your-api-key-here
-```
-
-Or as a query parameter:
-```
-?api_key=your-api-key-here
+http://localhost:4000
 ```
 
 ### Endpoints
@@ -116,18 +108,10 @@ Check if the service is running.
 **Response:**
 ```json
 {
-  "success": true,
-  "status": "healthy",
-  "timestamp": "2025-11-14T10:00:00.000Z",
-  "uptime": {
-    "seconds": 3600,
-    "formatted": "1h 0m 0s"
-  },
-  "memory": {
-    "rss": "150MB",
-    "heapTotal": "50MB",
-    "heapUsed": "30MB"
-  }
+  "uptime": 3600,
+  "message": "OK",
+  "timestamp": 1699960800000,
+  "environment": "development"
 }
 ```
 
@@ -140,7 +124,6 @@ Create a new order on EC-Force platform.
 **Headers:**
 ```
 Content-Type: application/json
-X-API-Key: your-api-key-here
 ```
 
 **Request Body:**
@@ -260,14 +243,12 @@ Configuration is managed through environment variables. See `.env.example` for a
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `NODE_ENV` | Environment (development/production) | development |
-| `PORT` | Server port | 3000 |
-| `HEADLESS` | Run browser in headless mode | true |
-| `API_KEY` | API authentication key | - |
-| `LOG_LEVEL` | Logging level (error/warn/info/debug) | info |
-| `SCREENSHOT_ON_ERROR` | Take screenshots on errors | true |
-| `MAX_RETRIES` | Maximum retry attempts | 3 |
-| `DEFAULT_TIMEOUT` | Default timeout in ms | 60000 |
+| `APP_ENV` | Environment (development/production) | development |
+| `APP_PORT` | Server port | 4000 |
+| `CRAWLER_DEBUGGING` | Enable debugging mode | false |
+| `GCS_BUCKET_NAME` | Google Cloud Storage bucket name | - |
+| `GCS_KEY_FILE` | Path to GCS service account key | - |
+| `GCS_PROJECT_ID` | Google Cloud Project ID | - |
 
 ## 📁 Project Structure
 
@@ -288,10 +269,11 @@ line-shop-runner-service/
 │   │   ├── errorHandler.js             # Error handling
 │   │   ├── validateRequest.js          # Request validation
 │   │   ├── requestLogger.js            # Request logging
-│   │   └── auth.js                     # API authentication
+│   │   └── requestId.js                # Request ID middleware
 │   ├── utils/
 │   │   ├── logger.js                   # Winston logger
-│   │   └── screenshot.js               # Screenshot utilities
+│   │   ├── screenshot.js               # Screenshot utilities
+│   │   └── asyncContext.js             # Async context tracking
 │   └── routes/
 │       └── index.js                    # Route definitions
 ├── logs/                               # Application logs
@@ -305,34 +287,39 @@ line-shop-runner-service/
 └── README.md
 ```
 
-## 🧪 Testing
+## 🏗️ Development
 
-### Run Tests
+### Available Scripts
+
 ```bash
-npm test
-# or
-make test
+# Start in production mode
+npm start
+
+# Start in development mode with auto-reload
+npm run dev
 ```
 
-### Run Tests in Watch Mode
-```bash
-npm run test:watch
-# or
-make test-watch
-```
+### Using Makefile
 
-### Lint Code
 ```bash
-npm run lint
-# or
-make lint
-```
+# Install dependencies
+make install
 
-### Fix Lint Errors
-```bash
-npm run lint:fix
-# or
-make lint-fix
+# Start development server
+make dev
+
+# Start production server
+make start
+
+# Docker commands
+make docker-build
+make docker-up
+make docker-down
+make docker-logs
+
+# Clean logs and screenshots
+make clean
+make clean-all
 ```
 
 ## 📊 Logging
@@ -356,27 +343,27 @@ Old screenshots are automatically cleaned up after 7 days.
 
 ## 🔒 Security
 
-- API key authentication
-- Rate limiting
 - Helmet.js for security headers
 - Input validation with Joi
 - CORS configuration
+- Request ID tracking
 - No sensitive data in logs
+- Async context for request isolation
 
 ## 🚀 Deployment
 
 ### Production Checklist
 
-- [ ] Set `NODE_ENV=production`
-- [ ] Use strong `API_KEY`
-- [ ] Enable `HEADLESS=true`
-- [ ] Configure proper `LOG_LEVEL`
+- [ ] Set `APP_ENV=production`
+- [ ] Set `APP_PORT` to appropriate value
+- [ ] Disable `CRAWLER_DEBUGGING` in production
+- [ ] Configure GCS for screenshot storage
 - [ ] Set up log rotation
-- [ ] Configure rate limiting
 - [ ] Set up monitoring/alerts
 - [ ] Configure proper CORS origins
 - [ ] Use HTTPS in production
 - [ ] Regular screenshot cleanup
+- [ ] Monitor browser instances
 
 ### Docker Production Deployment
 
@@ -386,10 +373,10 @@ docker build -t line-shop-runner-service:latest .
 
 # Run with environment variables
 docker run -d \
-  -p 3000:3000 \
-  -e NODE_ENV=production \
-  -e API_KEY=your-secure-key \
-  -e HEADLESS=true \
+  -p 4000:4000 \
+  -e APP_ENV=production \
+  -e APP_PORT=4000 \
+  -e CRAWLER_DEBUGGING=false \
   -v $(pwd)/logs:/app/logs \
   -v $(pwd)/screenshots:/app/screenshots \
   --name line-shop-runner \
@@ -417,25 +404,34 @@ spec:
       - name: line-shop-runner
         image: line-shop-runner-service:latest
         ports:
-        - containerPort: 3000
+        - containerPort: 4000
         env:
-        - name: NODE_ENV
+        - name: APP_ENV
           value: "production"
-        - name: API_KEY
+        - name: APP_PORT
+          value: "4000"
+        - name: CRAWLER_DEBUGGING
+          value: "false"
+        - name: GCS_BUCKET_NAME
           valueFrom:
             secretKeyRef:
               name: line-shop-secrets
-              key: api-key
+              key: gcs-bucket-name
+        - name: GCS_PROJECT_ID
+          valueFrom:
+            secretKeyRef:
+              name: line-shop-secrets
+              key: gcs-project-id
         livenessProbe:
           httpGet:
-            path: /health/live
-            port: 3000
+            path: /health
+            port: 4000
           initialDelaySeconds: 30
           periodSeconds: 10
         readinessProbe:
           httpGet:
-            path: /health/ready
-            port: 3000
+            path: /health
+            port: 4000
           initialDelaySeconds: 10
           periodSeconds: 5
 ```
@@ -485,10 +481,7 @@ spec:
 
 ### Health Check Endpoints
 
-- `/health` - Basic health check
-- `/health/status` - Detailed status
-- `/health/ready` - Readiness probe
-- `/health/live` - Liveness probe
+- `/health` - Basic health check with system metrics
 
 ### Metrics to Monitor
 
@@ -510,7 +503,8 @@ spec:
 - [ ] Caching layer
 - [ ] Prometheus metrics
 - [ ] OpenAPI/Swagger documentation
-- [ ] Unit and integration tests
+- [ ] API authentication
+- [ ] Rate limiting
 
 ## 📝 License
 

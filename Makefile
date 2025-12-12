@@ -1,4 +1,4 @@
-.PHONY: help install dev start build docker-build docker-up docker-down docker-logs clean test lint
+.PHONY: help install dev start build docker-build docker-up docker-down docker-logs clean
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -14,18 +14,6 @@ dev: ## Run in development mode with nodemon
 
 start: ## Start the application
 	npm start
-
-test: ## Run tests
-	npm test
-
-test-watch: ## Run tests in watch mode
-	npm run test:watch
-
-lint: ## Run ESLint
-	npm run lint
-
-lint-fix: ## Fix ESLint errors
-	npm run lint:fix
 
 docker-build: ## Build Docker image
 	docker build -t line-shop-runner-service:latest .
