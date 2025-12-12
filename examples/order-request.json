@@ -1,0 +1,20 @@
+{
+  "shop_url": "https://admin.ecforce.example.com",
+  "credentials": {
+    "admin_email": "admin@example.com",
+    "admin_password": "password123"
+  },
+  "form_data": {
+    "customer_id": "12345",
+    "product": {
+      "name": "Sample Product"
+    },
+    "shipping_address_id": "67890",
+    "credit_card_id": "1"
+  },
+  "options": {
+    "headless": false,
+    "debug_mode": true,
+    "timeout": 60000
+  }
+}
