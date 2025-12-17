@@ -57,15 +57,19 @@ setInterval(() => {
 
 // Start server
 const startServer = async () => {
-  // Initialize browser pool
-  try {
-    logger.info('Initializing browser pool...');
-    const browserPool = getBrowserPool();
-    await browserPool.initialize();
-    logger.info('Browser pool initialized successfully');
-  } catch (error) {
-    logger.error('Failed to initialize browser pool:', error);
-    logger.warn('Service will start without browser pool');
+  // Initialize browser pool only in headless mode
+  if (config.puppeteer.headless) {
+    try {
+      logger.info('Headless mode enabled - Initializing browser pool...');
+      const browserPool = getBrowserPool();
+      await browserPool.initialize();
+      logger.info('Browser pool initialized successfully');
+    } catch (error) {
+      logger.error('Failed to initialize browser pool:', error);
+      logger.warn('Service will start without browser pool');
+    }
+  } else {
+    logger.info('Non-headless mode enabled - Browser pool disabled');
   }
 
   const server = app.listen(config.server.port, config.server.host, () => {
@@ -81,6 +85,14 @@ const startServer = async () => {
     logger.info('='.repeat(50));
   });
 
+  // Set server socket/request timeout to configured value (ms)
+  try {
+    server.setTimeout(config.server.requestTimeout);
+    logger.info(`HTTP server socket timeout set to ${config.server.requestTimeout}ms`);
+  } catch (err) {
+    logger.warn('Unable to set server socket timeout', { error: err.message });
+  }
+
   // Graceful shutdown
   const gracefulShutdown = async (signal) => {
     logger.info(`${signal} received. Starting graceful shutdown...`);
@@ -88,24 +100,28 @@ const startServer = async () => {
     server.close(async () => {
       logger.info('HTTP server closed');
       
-      // Shutdown browser pool
-      try {
-        const browserPool = getBrowserPool();
-        await browserPool.shutdown();
-        logger.info('Browser pool shut down successfully');
-      } catch (error) {
-        logger.error('Error shutting down browser pool:', error);
+      // Shutdown browser pool (only if headless mode)
+      if (config.puppeteer.headless) {
+        try {
+          const browserPool = getBrowserPool();
+          if (browserPool.initialized) {
+            await browserPool.shutdown();
+            logger.info('Browser pool shut down successfully');
+          }
+        } catch (error) {
+          logger.error('Error shutting down browser pool:', error);
+        }
       }
       
       logger.info('Graceful shutdown completed');
       process.exit(0);
     });
 
-    // Force shutdown after 30 seconds
+    // Force shutdown after configured timeout (default 5 minutes)
     setTimeout(() => {
       logger.error('Forced shutdown after timeout');
       process.exit(1);
-    }, 30000);
+    }, config.server.shutdownTimeout);
   };
 
   // Handle shutdown signals
@@ -114,12 +130,14 @@ const startServer = async () => {
 
   // Handle uncaught exceptions
   process.on('uncaughtException', (error) => {
+    console.error('Uncaught Exception:', error);
     logger.error('Uncaught Exception:', error);
     gracefulShutdown('uncaughtException');
   });
 
   // Handle unhandled promise rejections
   process.on('unhandledRejection', (reason, promise) => {
+    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
     logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
   });
 

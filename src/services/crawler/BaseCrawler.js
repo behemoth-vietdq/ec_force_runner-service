@@ -18,7 +18,6 @@ class BaseCrawler {
     this.page = null;
     this.options = { ...config.puppeteer, ...options };
     this.startTime = Date.now();
-    this.usePool = options.usePool !== false; // Use pool by default
     this.pooledBrowser = false;
   }
 
@@ -28,37 +27,30 @@ class BaseCrawler {
    */
   async initBrowser() {
     try {
-      const isProduction = process.env.NODE_ENV === "production";
-      const headless = isProduction || process.env.DOCKER_ENV === "true";
+      const headless = this.options.headless;
+
+      // Use pooling only when headless mode is enabled
+      // Pool should be pre-initialized in app.js on startup
+      const usePooling = headless && config.puppeteer.headless;
 
       logger.info(
-        `Initializing browser - pooling: ${this.usePool}, headless: ${headless}, timeout: ${this.options.timeout}`
+        `Initializing browser - headless: ${headless}, pooling: ${usePooling}, timeout: ${this.options.timeout}`
       );
 
-      if (this.usePool) {
-        // Use browser pool for better performance
+      if (usePooling) {
+        // Use browser pool for better performance (headless only)
         const pool = getBrowserPool();
-        this.browser = await pool.acquire();
-        this.pooledBrowser = true;
-        logger.debug('Using pooled browser instance');
+        if (pool.initialized) {
+          this.browser = await pool.acquire();
+          this.pooledBrowser = true;
+          logger.debug('Using pooled browser instance');
+        } else {
+          logger.warn('Browser pool not initialized, launching new instance');
+          this.browser = await this._launchBrowser(headless);
+        }
       } else {
-        // Launch new browser instance
-        this.browser = await puppeteer.launch({
-          headless,
-          args: [
-            "--no-sandbox",
-            "--disable-setuid-sandbox",
-            "--disable-dev-shm-usage",
-            "--disable-accelerated-2d-canvas",
-            "--no-first-run",
-            "--no-zygote",
-            "--disable-gpu",
-            "--disable-web-security",
-            "--disable-features=VizDisplayCompositor",
-            ...(this.options.args || []),
-          ],
-          defaultViewport: this.options.defaultViewport,
-        });
+        // Launch new browser instance for non-headless mode
+        this.browser = await this._launchBrowser(headless);
         logger.debug('Launched new browser instance');
       }
 
@@ -89,6 +81,41 @@ class BaseCrawler {
         { originalError: error.message }
       );
     }
+  }
+
+  /**
+   * Launch a new browser instance with appropriate configuration
+   * @private
+   */
+  async _launchBrowser(headless) {
+    return await puppeteer.launch({
+      headless,
+      executablePath: headless ? undefined : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      ignoreDefaultArgs: headless ? undefined : ['--enable-automation'],
+      args: [
+        "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--disable-dev-shm-usage",
+        "--disable-accelerated-2d-canvas",
+        "--no-first-run",
+        "--no-zygote",
+        "--disable-gpu",
+        "--disable-web-security",
+        "--disable-features=VizDisplayCompositor",
+        // Add display args for non-headless mode
+        ...(headless ? [] : [
+          "--disable-background-timer-throttling",
+          "--disable-backgrounding-occluded-windows",
+          "--disable-renderer-backgrounding"
+        ]),
+        ...(this.options.args || []),
+      ],
+      defaultViewport: headless ? this.options.defaultViewport : {
+        width: 1920,
+        height: 1080,
+        deviceScaleFactor: 1,
+      },
+    });
   }
 
   /**

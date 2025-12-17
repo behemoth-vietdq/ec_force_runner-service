@@ -17,6 +17,7 @@
 4. **Error Resilient**: Distributed circuit breaker with shared state across all pods
 5. **Observable**: Comprehensive Prometheus metrics for monitoring and alerting
 6. **Kubernetes Native**: HPA-compatible with proper health checks and graceful shutdown
+7. **LINE Messaging Integration**: Automatic order notifications via LINE Messaging API
 
 ---
 
@@ -42,7 +43,7 @@
 │   Pod 1   │ .... │   Pod N   │      │  Redis   │
 │  Express  │      │  Express  │◄────►│ (Shared  │
 │  Puppeteer│      │  Puppeteer│      │  State)  │
-└─────┬─────┘      └─────┬─────┘      └──────────┘
+│   LINE    │      │   LINE    │      └──────────┘
       │                  │
       └──────────┬───────┘
                  │

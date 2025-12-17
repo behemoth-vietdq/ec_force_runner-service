@@ -3,10 +3,7 @@ const rateLimit = require("express-rate-limit");
 const OrderController = require("../controllers/orderController");
 const HealthController = require("../controllers/healthController");
 const authMiddleware = require("../middleware/auth");
-const {
-  createOrderSchema,
-  validateRequest,
-} = require("../middleware/validateRequest");
+const OrderValidation = require("../middleware/orderValidation");
 const { asyncHandler } = require("../middleware/errorHandler");
 const config = require("../config");
 
@@ -35,7 +32,8 @@ router.post(
   "/api/orders/create",
   authMiddleware,
   createOrderLimiter,
-  validateRequest(createOrderSchema),
+  OrderValidation.sanitizeBody,
+  OrderValidation.validateCreateOrder,
   asyncHandler(OrderController.createOrder)
 );
 

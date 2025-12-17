@@ -16,6 +16,7 @@
 
 const logger = require('./logger');
 const { CIRCUIT_BREAKER } = require('../config/constants');
+const config = require('../config');
 const {
   updateCircuitBreakerState,
   recordCircuitBreakerFailure,
@@ -410,17 +411,17 @@ class CircuitBreaker {
 const circuitBreakers = {
   ecforce: new CircuitBreaker('ec-force', {
     service: 'ecforce',
-    failureThreshold: 5,
-    successThreshold: 2,
-    timeout: 30000, // 30s for browser operations
-    resetTimeout: 60000 // 1 minute cooldown
+    failureThreshold: CIRCUIT_BREAKER.FAILURE_THRESHOLD,
+    successThreshold: CIRCUIT_BREAKER.SUCCESS_THRESHOLD,
+    timeout: (config.circuitBreaker && config.circuitBreaker.timeout) || CIRCUIT_BREAKER.TIMEOUT, // use centralized default (ms)
+    resetTimeout: CIRCUIT_BREAKER.RESET_TIMEOUT
   }),
-  
+
   gcs: new CircuitBreaker('google-cloud-storage', {
     service: 'gcs',
     failureThreshold: 3,
     successThreshold: 2,
-    timeout: 10000, // 10s for upload
+    timeout: 10000, // 10s for upload (keep short)
     resetTimeout: 30000 // 30s cooldown
   })
 };

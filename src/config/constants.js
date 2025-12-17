@@ -47,7 +47,7 @@ module.exports = {
   CIRCUIT_BREAKER: {
     FAILURE_THRESHOLD: 5,
     SUCCESS_THRESHOLD: 2,
-    TIMEOUT: 30000,
+    TIMEOUT: 300000, // 5 minutes
     RESET_TIMEOUT: 60000,
   },
 

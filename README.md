@@ -20,6 +20,7 @@ A production-ready Node.js service for automating order creation on EC-Force pla
 - **📸 GCS Integration**: Screenshot upload to Google Cloud Storage with signed URLs
 - **🏥 Health Checks**: `/healthz` and `/healthz/detailed` endpoints
 - **🐳 Docker Support**: Production-ready containerization
+- **📱 LINE Messaging**: Automatic order notifications via LINE Messaging API
 
 ### Observability & Monitoring
 - HTTP request metrics (duration, count, in-progress)
@@ -173,13 +174,9 @@ Content-Type: application/json
 **Request Body:**
 ```json
 {
-  "shop_url": "https://admin.ecforce.example.com",
-  "credentials": {
-    "admin_email": "admin@example.com",
-    "admin_password": "password123"
-  },
+  "account": "{\"id\":1,\"name\":\"local\",\"options\":{\"ec_force_info\":{\"email\":\"admin@example.com\",\"password\":\"password123\",\"shop_url\":\"https://admin.ecforce.example.com\"},\"line_message_api_channel_id\":\"1234567890\",\"line_message_api_channel_secret\":\"abcdef123456\",\"line_message_api_channel_token\":\"xyz789\"}}",
+  "customer": "{\"id\":7111074,\"ext_id\":\"107745\",\"account_id\":1,\"uid\":\"U1234567890abcdef\"}",
   "form_data": {
-    "customer_id": "12345",
     "product": {
       "name": "Product Name"
     },
@@ -600,6 +597,65 @@ spec:
 - Memory usage
 - Error rate by type
 - Queue length (future)
+
+## 📱 LINE Messaging Integration
+
+The service supports automatic LINE notifications after successful order creation. LINE credentials are passed via `account` and `customer` parameters as JSON strings.
+
+### Account Parameters (JSON String)
+```json
+{
+  "id": 1,
+  "name": "local",
+  "options": {
+    "ec_force_info": {
+      "email": "admin@example.com",
+      "password": "password123",
+      "shop_url": "https://admin.ecforce.example.com"
+    },
+    "line_message_api_channel_id": "1234567890",
+    "line_message_api_channel_secret": "abcdef123456",
+    "line_message_api_channel_token": "xyz789"
+  }
+}
+```
+
+### Customer Parameters (JSON String)
+```json
+{
+  "id": 7111074,
+  "ext_id": "107745",
+  "account_id": 1,
+  "uid": "U1234567890abcdef"
+}
+```
+
+### Required Credentials
+- **account.options.ec_force_info.shop_url**: EC-Force admin URL
+- **account.options.ec_force_info.email**: Admin email for EC-Force
+- **account.options.ec_force_info.password**: Admin password for EC-Force
+- **customer.ext_id**: Customer external ID (used as customer_id in EC-Force)
+- **account.options.line_message_api_channel_id**: LINE Channel ID
+- **account.options.line_message_api_channel_secret**: LINE Channel Secret
+- **account.options.line_message_api_channel_token**: LINE Channel Access Token
+- **customer.uid**: Customer's LINE User ID for sending messages
+
+### Notification Flow
+1. Order creation completes successfully
+2. Service extracts LINE credentials from account/customer JSON
+3. Sends formatted message to customer's LINE
+4. Logs success/failure (non-blocking - doesn't affect order)
+
+### Message Template
+```
+🎉 Order Created Successfully!
+
+Order Number: ORD-20251114-001
+Customer: CUST-12345
+Total: ¥10,000
+
+Thank you for your purchase!
+```
 
 ## 🔄 Future Enhancements
 
