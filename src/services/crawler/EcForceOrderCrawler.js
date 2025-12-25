@@ -132,7 +132,7 @@ class EcForceOrderCrawler extends BaseCrawler {
    * Main execution method with circuit breaker protection.
    * @returns {Object} Success result or throws error.
    */
-  async exec2ute() {
+  async execute() {
     const startTime = Date.now();
 
     logger.info(
@@ -505,9 +505,9 @@ class EcForceOrderCrawler extends BaseCrawler {
     await this.selectShippingAddress();
 
     // Fill billing address if provided
-    if (this.formData.billing_address) {
-      await this.fillBillingAddress();
-    }
+    // if (this.formData.billing_address) {
+    //   await this.fillBillingAddress();
+    // }
 
     // Select payment method if provided
     if (this.formData.payment_method_id) {
