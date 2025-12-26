@@ -50,11 +50,6 @@ class EcForceAdmin {
     this.adminPassword = adminPassword;
     this.token = token || null;
     this.extraHeaders = { ...(extraHeaders || {}) };
-    if (!token && (!adminEmail || !adminPassword)) {
-      throw new Error(
-        "EcForceAdmin: adminEmail and adminPassword are required when token is not provided"
-      );
-    }
 
     this.http = axios.create({ baseURL: this.baseUrl, timeout: 30000 });
     if (this.token) this._attachAuthHeader(this.token);
