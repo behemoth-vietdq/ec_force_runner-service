@@ -103,7 +103,7 @@ class EcForceAdmin {
     const maxRetries = 3;
     let attempt = 0;
 
-    while (attempt < maxRetries) {
+    while (attempt <= maxRetries) {
       attempt += 1;
       try {
         const url = path.startsWith("/") ? path : `/${path}`;
