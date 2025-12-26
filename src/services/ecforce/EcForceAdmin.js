@@ -95,7 +95,7 @@ class EcForceAdmin {
       });
       if (err?.response?.status === 401)
         throw new SignInError("invalid credentials");
-      throw err;
+      throw new SignInError("signIn request failed", { cause: err });
     }
   }
 
