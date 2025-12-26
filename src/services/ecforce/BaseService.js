@@ -14,6 +14,22 @@ class BaseService {
     this.ecForceAdmin = client;
   }
 
+  /**
+   * Private method to persist token back to account
+   */
+  async _persistToken(token) {
+    try {
+      this.context.account.options = this.context.account.options || {};
+      this.context.account.options.ec_force_info = this.context.account.options.ec_force_info || {};
+      this.context.account.options.ec_force_info.token = token;
+      if (typeof this.context.account.save === 'function') {
+        await this.context.account.save();
+      }
+    } catch (err) {
+      logger.warn('BaseService: failed to persist token to account', { error: err.message });
+    }
+  }
+
   async initInfo() {
     const account = this.context.account;
     if (!account) throw new Error('Account required');
@@ -46,16 +62,7 @@ class BaseService {
       try {
         const newToken = await this.ecForceAdmin.signIn();
         // store token back to account.options.ec_force_info.token if possible
-        this.context.account.options = this.context.account.options || {};
-        this.context.account.options.ec_force_info = this.context.account.options.ec_force_info || {};
-        this.context.account.options.ec_force_info.token = newToken;
-        if (typeof this.context.account.save === 'function') {
-          try {
-            await this.context.account.save();
-          } catch (err) {
-            logger.warn('BaseService: failed to persist token to account', { error: err.message });
-          }
-        }
+        await this._persistToken(newToken);
         this.ecForceAdmin.setToken(newToken);
       } catch (err) {
         // Sign-in failed: rethrow a clear error
@@ -94,14 +101,7 @@ class BaseService {
             const newToken = await this.ecForceAdmin.signIn();
             this.ecForceAdmin.setToken(newToken);
             // persist token into account.options if possible
-            try {
-              this.context.account.options = this.context.account.options || {};
-              this.context.account.options.ec_force_info = this.context.account.options.ec_force_info || {};
-              this.context.account.options.ec_force_info.token = newToken;
-              if (typeof this.context.account.save === 'function') await this.context.account.save();
-            } catch (err) {
-              logger.warn('BaseService: failed to persist token after signIn', { error: err.message });
-            }
+            await this._persistToken(newToken);
             didSignIn = true;
             continue; // retry the fn
           } catch (signinErr) {
