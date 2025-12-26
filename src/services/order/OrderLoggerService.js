@@ -8,7 +8,10 @@ function safeString(v) {
 
 function jsonOrNull(value) {
   try {
-    return value == null ? null : JSON.stringify(value);
+    if (value == null) return null;
+    // For arrays, return null if empty to match previous behavior
+    if (Array.isArray(value) && value.length === 0) return null;
+    return JSON.stringify(value);
   } catch (e) {
     return null;
   }
@@ -60,23 +63,25 @@ async function logOrderParams(account, customer, orderId) {
     const svc = new GetOrderService(context);
     await svc.call();
 
-    const ec_order = context.result;
-    if (!ec_order) return null;
+    const ecOrder = context.result;
+    if (!ecOrder) return null;
 
-    const included = Array.isArray(ec_order.included) ? ec_order.included : [];
+    // Extract body from the response structure { body, code, headers }
+    const orderData = ecOrder.body || ecOrder;
+    const included = Array.isArray(orderData.included) ? orderData.included : [];
 
     const customerObj = included.find((i) => i.type === 'customer') || null;
-    const orderItemIds = (ec_order?.data?.relationships?.order_items?.data || []).map((i) => i.id);
+    const orderItemIds = (orderData?.data?.relationships?.order_items?.data || []).map((i) => i.id);
     const orderItems = included.filter((i) => i.type === 'order_item' && orderItemIds.includes(i.id));
     const subsOrder = included.find((i) => i.type === 'sub_order') || null;
-    const orderAttrs = (ec_order?.data && ec_order.data.attributes) ? ec_order.data.attributes : {};
+    const orderAttrs = (orderData?.data && orderData.data.attributes) ? orderData.data.attributes : {};
 
     const mainLog = buildLog({
       kind: 'order_created',
       accountId: account.id,
       customerId: customer?.id || customerObj?.id,
       resource: orderAttrs,
-      data: ec_order,
+      data: orderData,
       customer: customerObj,
       orderItems,
     });
@@ -106,7 +111,7 @@ async function logOrderParams(account, customer, orderId) {
       logger.info(subLog);
     }
 
-    return ec_order;
+    return ecOrder;
   } catch (err) {
     logger.error('OrderLoggerService failed to fetch/log order', { message: err.message, stack: err.stack });
     return null;
