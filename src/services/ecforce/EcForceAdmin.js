@@ -164,7 +164,7 @@ class EcForceAdmin {
           const retryAfter =
             parseInt(err.response?.headers?.["retry-after"] || "1", 10) *
               1000 || 1000;
-          const backoff = retryAfter * attempt;
+          const backoff = retryAfter;
           if (attempt < maxRetries) {
             logger.info(
               `Rate limited, backing off ${backoff}ms (attempt ${attempt})`
