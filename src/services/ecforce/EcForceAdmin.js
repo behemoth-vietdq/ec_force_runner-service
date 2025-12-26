@@ -203,7 +203,21 @@ class EcForceAdmin {
   }
 
   async getProduct(productId, params = {}) {
-    return this.request("get", `/api/v2/admin/products/${productId}.json`, {
+    if (typeof productId !== "string" && typeof productId !== "number") {
+      throw new TypeError("productId must be a string or number");
+    }
+
+    const safeProductId = String(productId).trim();
+
+    if (!safeProductId) {
+      throw new TypeError("productId must not be empty");
+    }
+
+    if (safeProductId.includes("/") || safeProductId.includes("..")) {
+      throw new TypeError("productId contains invalid characters");
+    }
+
+    return this.request("get", `/api/v2/admin/products/${safeProductId}.json`, {
       params,
     });
   }
