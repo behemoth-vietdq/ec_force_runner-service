@@ -188,6 +188,9 @@ class EcForceAdmin {
   }
 
   async getOrder(orderId, params = {}) {
+    if (typeof orderId !== "string" && typeof orderId !== "number") {
+      throw new TypeError("orderId must be a string or number");
+    }
     return this.request("get", `/api/v2/admin/orders/${orderId}.json`, {
       params,
     });
