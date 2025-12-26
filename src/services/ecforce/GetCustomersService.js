@@ -7,7 +7,7 @@ class GetCustomersService extends BaseService {
     await this.request(async () => {
       const params = this.context.params || {};
       const resp = await this.ecForceAdmin.getCustomers(params);
-      this.context.result = resp;
+      this.context.result = resp && resp.body ? resp.body : resp;
     });
   }
 }

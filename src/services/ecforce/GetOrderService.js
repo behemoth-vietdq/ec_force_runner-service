@@ -10,7 +10,7 @@ class GetOrderService extends BaseService {
 
       const params = this.context.params || {};
       const resp = await this.ecForceAdmin.getOrder(orderId, params);
-      this.context.result = resp;
+      this.context.result = resp && resp.body ? resp.body : resp;
     });
   }
 }

@@ -40,8 +40,11 @@ class BaseService {
     const shopUrl = ecForceInfo?.shop_url;
     const providedToken = ecForceInfo?.token || null;
 
-    if (!adminEmail || !adminPassword || !shopUrl) {
-      throw new Error('missing required fields: email, password or shop_url');
+    if (!shopUrl) {
+      throw new Error('missing required field: shop_url');
+    }
+    if (!providedToken && (!adminEmail || !adminPassword)) {
+      throw new Error('missing required fields: admin email/password or token');
     }
 
     // create client if not injected
