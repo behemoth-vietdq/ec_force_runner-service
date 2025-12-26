@@ -1,94 +1,121 @@
 const { EcForceAdmin, AuthenticateFail, SignInError } = require('./EcForceAdmin');
 const logger = require('../../utils/logger');
 
+/**
+ * BaseService: small, opinionated initializer for EC-Force client usage.
+ * - keeps initialization explicit and readable
+ * - accepts the `context` object (account, params, etc.)
+ * - handles one-shot sign-in only when a token is not provided
+ */
 class BaseService {
-  constructor(context = {}) {
+  constructor(context = {}, client = null) {
     this.context = context;
-    this.ecForceAdmin = null;
+    // allow DI of a pre-built client (useful for tests)
+    this.ecForceAdmin = client;
   }
 
-  initInfo() {
+  async initInfo() {
     const account = this.context.account;
-    if (!account) {
-      throw new Error('Account required');
-    }
+    if (!account) throw new Error('Account required');
 
     const ecForceInfo = account.options && account.options.ec_force_info;
     const adminEmail = ecForceInfo?.email;
     const adminPassword = ecForceInfo?.password;
     const shopUrl = ecForceInfo?.shop_url;
-    const token = ecForceInfo?.token;
+    const providedToken = ecForceInfo?.token || null;
 
     if (!adminEmail || !adminPassword || !shopUrl) {
-      throw new Error('missing required fields');
+      throw new Error('missing required fields: email, password or shop_url');
     }
 
-    this.context.ecForceAdmin = new EcForceAdmin(shopUrl, adminEmail, adminPassword, token);
-    this.ecForceAdmin = this.context.ecForceAdmin;
+    // create client if not injected
+    if (!this.ecForceAdmin) {
+      this.ecForceAdmin = new EcForceAdmin({ shopUrl, adminEmail, adminPassword, token: providedToken });
+    }
+
+    // pass through cookie or any extra request headers
+    const extra = {};
+    if (ecForceInfo?.cookie) extra.Cookie = ecForceInfo.cookie;
+    if (ecForceInfo?.request_headers && typeof ecForceInfo.request_headers === 'object') {
+      Object.assign(extra, ecForceInfo.request_headers);
+    }
+    if (Object.keys(extra).length > 0) this.ecForceAdmin.setExtraHeaders(extra);
+
+    // If token not provided in config, perform a one-time sign-in and persist
+    if (!providedToken) {
+      try {
+        const newToken = await this.ecForceAdmin.signIn();
+        // store token back to account.options.ec_force_info.token if possible
+        this.context.account.options = this.context.account.options || {};
+        this.context.account.options.ec_force_info = this.context.account.options.ec_force_info || {};
+        this.context.account.options.ec_force_info.token = newToken;
+        if (typeof this.context.account.save === 'function') {
+          try {
+            await this.context.account.save();
+          } catch (err) {
+            logger.warn('BaseService: failed to persist token to account', { error: err.message });
+          }
+        }
+        this.ecForceAdmin.setToken(newToken);
+      } catch (err) {
+        // Sign-in failed: rethrow a clear error
+        throw new Error('authenticate fail');
+      }
+    }
   }
 
+  /**
+   * Execute `fn` with simple re-auth logic.
+   * - If account originally provided a token, do NOT attempt automatic sign-in on 401.
+   * - Otherwise perform one sign-in and retry once.
+   */
   async request(fn) {
-    // Mirror the Rails logic: attempt auth if token missing, retry on specific errors
-    let needReAuthen = !this.ecForceAdmin.authenticatedToken;
-    let newAuthenToken = null;
-    let retryCount = 0;
-    const maxRetries = 3;
+    const initialHasToken = !!(this.context.account?.options?.ec_force_info?.token);
+
+    let didSignIn = false;
+    let attempt = 0;
 
     while (true) {
+      attempt += 1;
       try {
-        if (needReAuthen && !newAuthenToken) {
-          newAuthenToken = await this.ecForceAdmin.getAuthenticateInfo();
-          // persist token back to account.options if possible
-          try {
-            this.context.account.options = this.context.account.options || {};
-            this.context.account.options.ec_force_info = this.context.account.options.ec_force_info || {};
-            this.context.account.options.ec_force_info.token = newAuthenToken;
-            if (typeof this.context.account.save === 'function') {
-              await this.context.account.save();
-            }
-          } catch (e) {
-            logger.warn('Failed to persist auth token to account', { error: e.message });
-          }
-        } else if (newAuthenToken) {
-          try {
-            this.context.account.options = this.context.account.options || {};
-            this.context.account.options.ec_force_info = this.context.account.options.ec_force_info || {};
-            this.context.account.options.ec_force_info.token = newAuthenToken;
-            if (typeof this.context.account.save === 'function') {
-              await this.context.account.save();
-            }
-          } catch (e) {
-            logger.warn('Failed to persist auth token to account', { error: e.message });
-          }
-        }
-
-        if (newAuthenToken) {
-          this.ecForceAdmin.authenticatedToken = newAuthenToken;
-        }
-
         return await fn();
       } catch (err) {
-        // Handle AuthenticateFail -> try re-auth
+        // clear, intentional handling for auth errors
         if (err instanceof AuthenticateFail) {
-          needReAuthen = true;
-          if (retryCount <= maxRetries) {
-            retryCount += 1;
-            continue;
+          if (initialHasToken) {
+            // token was user-provided: do not attempt to sign-in for them
+            throw new Error('authenticate fail');
+          }
+
+          if (didSignIn) throw new Error('authenticate fail');
+
+          // try sign-in once, then retry
+          try {
+            const newToken = await this.ecForceAdmin.signIn();
+            this.ecForceAdmin.setToken(newToken);
+            // persist token into account.options if possible
+            try {
+              this.context.account.options = this.context.account.options || {};
+              this.context.account.options.ec_force_info = this.context.account.options.ec_force_info || {};
+              this.context.account.options.ec_force_info.token = newToken;
+              if (typeof this.context.account.save === 'function') await this.context.account.save();
+            } catch (err) {
+              logger.warn('BaseService: failed to persist token after signIn', { error: err.message });
+            }
+            didSignIn = true;
+            continue; // retry the fn
+          } catch (signinErr) {
+            throw new Error('authenticate fail');
           }
         }
 
-        if (err instanceof SignInError) {
-          throw new Error('authenticate fail');
-        }
-
-        // emulate ActiveRecord::StaleObjectError retry by checking err.name
-        if (err.name === 'StaleObjectError' && retryCount <= maxRetries) {
-          retryCount += 1;
+        // Retry a couple of times on optimistic concurrency errors
+        if (err && err.name === 'StaleObjectError' && attempt < 3) {
           continue;
         }
 
-        // other errors: wrap and throw
-        throw new Error(`fail to request, error: ${err.message}`);
+        // Bubble other errors up unwrapped (caller can choose how to handle)
+        throw err;
       }
     }
   }
