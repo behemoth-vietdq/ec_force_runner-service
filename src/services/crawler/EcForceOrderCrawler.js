@@ -682,8 +682,6 @@ class EcForceOrderCrawler extends BaseCrawler {
   async extractOrderDetails() {
     logger.info(`Step 6: Extracting order details - url: ${this.page.url()}`);
 
-    await this.takeScreenshot("order_success.png");
-
     // Verify we're on success page
     if (
       !(await this.elementExists(

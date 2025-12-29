@@ -39,7 +39,9 @@ describe('BaseCrawler', () => {
     // Setup mock browser
     mockBrowser = {
       newPage: jest.fn().mockResolvedValue(mockPage),
-      close: jest.fn().mockResolvedValue(undefined)
+      close: jest.fn().mockResolvedValue(undefined),
+      pages: jest.fn().mockResolvedValue([mockPage]),
+      process: jest.fn().mockReturnValue(null)
     };
 
     // Setup puppeteer mock

@@ -162,6 +162,7 @@ class BaseCrawler {
 
   /**
    * Close browser safely with proper cleanup
+   * Forces browser termination if graceful close fails
    */
   async closeBrowser() {
     // Atomically check and clear references to prevent double-close
@@ -183,10 +184,34 @@ class BaseCrawler {
         page.removeListener("pageerror", this._handlePageError);
       }
       
-      await browser.close();
+      // Close all pages first to prevent orphaned pages
+      const pages = await browser.pages();
+      await Promise.all(pages.map(p => p.close().catch(e => {
+        logger.warn(`Failed to close page: ${e.message}`);
+      })));
+      
+      // Close browser with timeout
+      const closePromise = browser.close();
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Browser close timeout')), 10000)
+      );
+      
+      await Promise.race([closePromise, timeoutPromise]);
       logger.info("Browser closed successfully");
     } catch (error) {
-      logger.error("Error closing browser:", error);
+      logger.error(`Error closing browser: ${getErrorMessage(error)}`);
+      
+      // Force kill browser process if close failed
+      try {
+        const browserProcess = browser.process();
+        if (browserProcess && !browserProcess.killed) {
+          logger.warn('Force killing browser process');
+          browserProcess.kill('SIGKILL');
+          logger.info('Browser process killed');
+        }
+      } catch (killError) {
+        logger.error(`Failed to kill browser process: ${getErrorMessage(killError)}`);
+      }
     }
   }
 
