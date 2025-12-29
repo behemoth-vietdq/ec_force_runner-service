@@ -32,6 +32,7 @@ describe('BaseCrawler', () => {
       setUserAgent: jest.fn().mockResolvedValue(undefined),
       setDefaultTimeout: jest.fn(),
       on: jest.fn(),
+      off: jest.fn(),
       waitForSelector: jest.fn().mockResolvedValue({}),
       url: jest.fn().mockReturnValue('https://example.com')
     };

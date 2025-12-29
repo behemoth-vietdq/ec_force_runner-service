@@ -118,29 +118,12 @@ class EcForceAdmin {
         if (this.token)
           headers["Authorization"] = `Token token="${this.token}"`;
 
-        logger.debug("EcForceAdmin.request", {
-          attempt,
-          method,
-          url,
-          params: typeof params === "object" ? Object.keys(params) : params,
-          headers: {
-            Authorization: mask(headers["Authorization"]),
-            Cookie: headers.Cookie,
-          },
-        });
-
         const resp = await this.http.request({
           method,
           url,
           params,
           data,
           headers,
-        });
-
-        logger.debug("EcForceAdmin.response", {
-          method,
-          url,
-          status: resp.status,
         });
 
         if (resp.status === 401)

@@ -23,7 +23,6 @@ function createServiceFromAccount(account) {
 async function sendText(account, to, text) {
   const svc = createServiceFromAccount(account);
   if (!svc) {
-    logger.info('LINE credentials missing, skipping text message');
     return null;
   }
 
@@ -38,7 +37,6 @@ async function sendText(account, to, text) {
 async function sendFlex(account, to, flexObject) {
   const svc = createServiceFromAccount(account);
   if (!svc) {
-    logger.info('LINE credentials missing, skipping flex message');
     return null;
   }
 

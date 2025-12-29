@@ -140,13 +140,10 @@ class EcForceOrderCrawler extends BaseCrawler {
 
     try {
       await this.initBrowser();
-      logger.debug('Browser initialized, setting viewport');
-      
+
       await this.page.setViewport({ width: 1920, height: 1080 });
-      logger.debug('Viewport set, starting run');
-      
+
       await this.run();
-      logger.debug('Run completed successfully');
 
       const executionTime = Date.now() - startTime;
       logger.info(
@@ -163,15 +160,20 @@ class EcForceOrderCrawler extends BaseCrawler {
 
       // Handle undefined errors
       if (error === undefined || error === null) {
-        logger.error(`Order creation failed with undefined/null error - executionTime: ${executionTime}ms`);
-        logger.error('Stack trace:', new Error('Undefined error occurred').stack);
-        
+        logger.error(
+          `Order creation failed with undefined/null error - executionTime: ${executionTime}ms`
+        );
+        logger.error(
+          "Stack trace:",
+          new Error("Undefined error occurred").stack
+        );
+
         const wrappedError = new CrawlerError(
-          'Unknown error occurred (error was undefined)',
+          "Unknown error occurred (error was undefined)",
           ErrorCodes.INTERNAL_ERROR,
           500
         );
-        
+
         await this.handleError(
           wrappedError,
           `ec_order_failed_${this.customer.ext_id}_${Date.now()}`
@@ -180,7 +182,9 @@ class EcForceOrderCrawler extends BaseCrawler {
       }
 
       logger.error(
-        `Order creation failed - executionTime: ${executionTime}ms, error: ${getErrorMessage(error)}`
+        `Order creation failed - executionTime: ${executionTime}ms, error: ${getErrorMessage(
+          error
+        )}`
       );
       logger.error(error?.stack || String(error));
 
@@ -219,7 +223,6 @@ class EcForceOrderCrawler extends BaseCrawler {
   async submitAndConfirmOrder() {
     logger.info("Step 4: Submitting order for review");
 
-    await this.takeScreenshot("before_submit.png");
     await this.page.evaluate(() =>
       window.scrollTo(0, document.body.scrollHeight)
     );
@@ -270,7 +273,6 @@ class EcForceOrderCrawler extends BaseCrawler {
     logger.info("Order submitted successfully - now confirming");
 
     // Confirm order on confirmation page
-    await this.takeScreenshot("before_confirm.png");
     await this.page.evaluate(() =>
       window.scrollTo(0, document.body.scrollHeight)
     );
@@ -427,7 +429,7 @@ class EcForceOrderCrawler extends BaseCrawler {
     await this.page
       .waitForNavigation({ waitUntil: "networkidle2", timeout: 5000 })
       .catch(() => {
-        logger.debug("Navigation wait timeout (expected if already on page)");
+        // Navigation timeout expected if already on page
       });
 
     // Verify login success

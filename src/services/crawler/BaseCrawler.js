@@ -180,8 +180,8 @@ class BaseCrawler {
     try {
       // Remove event listeners to prevent memory leaks
       if (page) {
-        page.removeListener("console", this._handleConsoleLog);
-        page.removeListener("pageerror", this._handlePageError);
+        page.off("console", this._handleConsoleLog);
+        page.off("pageerror", this._handlePageError);
       }
       
       // Close all pages first to prevent orphaned pages

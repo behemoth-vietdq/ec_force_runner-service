@@ -53,7 +53,6 @@ const authMiddleware = (req, res, next) => {
   const apiKey = req.headers['x-api-key'];
 
   if (!apiKey) {
-    logger.warn(`Authentication failed - no API key provided - IP: ${req.ip}`);
     return res.status(401).json({
       success: false,
       error: {
@@ -67,7 +66,6 @@ const authMiddleware = (req, res, next) => {
   const isValidKey = validKeys.some(validKey => constantTimeCompare(apiKey, validKey));
   
   if (!isValidKey) {
-    logger.warn(`Authentication failed - invalid API key - IP: ${req.ip}`);
     return res.status(401).json({
       success: false,
       error: {
@@ -77,7 +75,6 @@ const authMiddleware = (req, res, next) => {
     });
   }
 
-  logger.debug('API authentication successful');
   next();
 };
 

@@ -1,5 +1,4 @@
 const { CrawlerError, ErrorCodes } = require("./errorHandler");
-const logger = require("../utils/logger");
 
 /**
  * Validation middleware for order creation requests
@@ -75,8 +74,6 @@ class OrderValidation {
 
     // If validation errors, return 400
     if (errors.length > 0) {
-      logger.warn("Order validation failed", errors);
-
       return next(
         new CrawlerError(
           "Validation failed",
