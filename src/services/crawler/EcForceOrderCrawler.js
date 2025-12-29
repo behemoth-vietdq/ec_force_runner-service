@@ -180,7 +180,7 @@ class EcForceOrderCrawler extends BaseCrawler {
       }
 
       logger.error(
-        `Order creation failed - executionTime: ${executionTime}ms, error: ${error?.message || String(error)}`
+        `Order creation failed - executionTime: ${executionTime}ms, error: ${getErrorMessage(error)}`
       );
       logger.error(error?.stack || String(error));
 

@@ -1,4 +1,4 @@
-const logger = require('../utils/logger');
+const logger = require("../utils/logger");
 
 /**
  * Custom error class for crawler errors
@@ -6,7 +6,7 @@ const logger = require('../utils/logger');
 class CrawlerError extends Error {
   constructor(message, code, statusCode = 500, details = {}) {
     super(message);
-    this.name = 'CrawlerError';
+    this.name = "CrawlerError";
     this.code = code;
     this.statusCode = statusCode;
     this.details = details;
@@ -19,42 +19,53 @@ class CrawlerError extends Error {
  */
 const ErrorCodes = {
   // Browser errors
-  BROWSER_INIT_FAILED: 'BROWSER_INIT_FAILED',
-  BROWSER_NAVIGATION_FAILED: 'BROWSER_NAVIGATION_FAILED',
-  
+  BROWSER_INIT_FAILED: "BROWSER_INIT_FAILED",
+  BROWSER_NAVIGATION_FAILED: "BROWSER_NAVIGATION_FAILED",
+
   // Element errors
-  ELEMENT_NOT_FOUND: 'ELEMENT_NOT_FOUND',
-  ELEMENT_INTERACTION_FAILED: 'ELEMENT_INTERACTION_FAILED',
-  
+  ELEMENT_NOT_FOUND: "ELEMENT_NOT_FOUND",
+  ELEMENT_INTERACTION_FAILED: "ELEMENT_INTERACTION_FAILED",
+
   // Authentication errors
-  LOGIN_FAILED: 'LOGIN_FAILED',
-  INVALID_CREDENTIALS: 'INVALID_CREDENTIALS',
-  
+  LOGIN_FAILED: "LOGIN_FAILED",
+  INVALID_CREDENTIALS: "INVALID_CREDENTIALS",
+
   // Order errors
-  ORDER_CREATION_FAILED: 'ORDER_CREATION_FAILED',
-  ORDER_SUBMISSION_FAILED: 'ORDER_SUBMISSION_FAILED',
-  ORDER_VALIDATION_FAILED: 'ORDER_VALIDATION_FAILED',
-  
+  ORDER_CREATION_FAILED: "ORDER_CREATION_FAILED",
+  ORDER_SUBMISSION_FAILED: "ORDER_SUBMISSION_FAILED",
+  ORDER_VALIDATION_FAILED: "ORDER_VALIDATION_FAILED",
+
   // Validation errors
-  VALIDATION_ERROR: 'VALIDATION_ERROR',
-  INVALID_INPUT: 'INVALID_INPUT',
-  
+  VALIDATION_ERROR: "VALIDATION_ERROR",
+  INVALID_INPUT: "INVALID_INPUT",
+
   // Timeout errors
-  TIMEOUT_ERROR: 'TIMEOUT_ERROR',
-  PAGE_LOAD_TIMEOUT: 'PAGE_LOAD_TIMEOUT',
-  CRAWLER_TIMEOUT: 'CRAWLER_TIMEOUT',
-  
+  TIMEOUT_ERROR: "TIMEOUT_ERROR",
+  PAGE_LOAD_TIMEOUT: "PAGE_LOAD_TIMEOUT",
+  CRAWLER_TIMEOUT: "CRAWLER_TIMEOUT",
+
   // General errors
-  INTERNAL_ERROR: 'INTERNAL_ERROR',
-  UNKNOWN_ERROR: 'UNKNOWN_ERROR',
+  INTERNAL_ERROR: "INTERNAL_ERROR",
+  UNKNOWN_ERROR: "UNKNOWN_ERROR",
 };
 
 /**
  * Global error handler middleware
  */
 const errorHandler = (err, req, res, next) => {
-  // Log error
-  logger.error(`Error occurred - name: ${err.name}, message: ${err.message}, code: ${err.code}, url: ${req.originalUrl}, method: ${req.method}`);
+  // Determine error code for logging (avoid undefined)
+  const errorCode =
+    err.code ||
+    (err instanceof CrawlerError
+      ? ErrorCodes.UNKNOWN_ERROR
+      : ErrorCodes.INTERNAL_ERROR);
+
+  // Log error with proper error code
+  logger.error(
+    `Error occurred - name: ${err.name || "Error"}, message: ${
+      err.message || "Unknown error"
+    }, code: ${errorCode}, url: ${req.originalUrl}, method: ${req.method}`
+  );
 
   // Handle Joi validation errors
   if (err.isJoi) {
@@ -62,9 +73,9 @@ const errorHandler = (err, req, res, next) => {
       success: false,
       error: {
         code: ErrorCodes.VALIDATION_ERROR,
-        message: 'Validation error',
-        details: err.details.map(d => ({
-          field: d.path.join('.'),
+        message: "Validation error",
+        details: err.details.map((d) => ({
+          field: d.path.join("."),
           message: d.message,
         })),
       },
@@ -85,14 +96,13 @@ const errorHandler = (err, req, res, next) => {
 
   // Handle generic errors
   const statusCode = err.statusCode || 500;
-  const errorCode = err.code || ErrorCodes.INTERNAL_ERROR;
-  
+
   res.status(statusCode).json({
     success: false,
     error: {
       code: errorCode,
-      message: err.message || 'Internal server error',
-      ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+      message: err.message || "Internal server error",
+      ...(process.env.NODE_ENV === "development" && { stack: err.stack }),
     },
   });
 };
@@ -104,7 +114,7 @@ const notFoundHandler = (req, res) => {
   res.status(404).json({
     success: false,
     error: {
-      code: 'NOT_FOUND',
+      code: "NOT_FOUND",
       message: `Route ${req.originalUrl} not found`,
     },
   });

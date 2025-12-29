@@ -58,9 +58,17 @@ const logger = winston.createLogger({
 });
 
 // Add console transport (always enabled for Docker logs)
-logger.add(new winston.transports.Console({
+const consoleTransport = new winston.transports.Console({
   format: consoleFormat,
-}));
+});
+
+logger.add(consoleTransport);
+
+// Silence console logs ONLY when running Jest tests (not in dev/prod)
+// File logs still work, only console is silenced during test runs
+if (process.env.JEST_WORKER_ID !== undefined) {
+  consoleTransport.silent = true;
+}
 
 // Store original log methods
 const originalInfo = logger.info.bind(logger);
@@ -128,4 +136,22 @@ logger.debug = (message, meta = {}) => {
   return originalDebug(combined);
 };
 
+/**
+ * Format error message consistently
+ * @param {Error|string|any} error - Error object or message
+ * @returns {string} Formatted error message
+ */
+const getErrorMessage = (error) => {
+  if (!error) return 'Unknown error';
+  if (typeof error === 'string') return error;
+  if (error instanceof Error) return error.message;
+  if (error?.message) return error.message;
+  try {
+    return String(error);
+  } catch (e) {
+    return 'Error converting error to string';
+  }
+};
+
 module.exports = logger;
+module.exports.getErrorMessage = getErrorMessage;

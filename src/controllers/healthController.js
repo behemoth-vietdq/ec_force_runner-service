@@ -1,4 +1,5 @@
 const logger = require('../utils/logger');
+const { getErrorMessage } = require('../utils/logger');
 const config = require('../config');
 const puppeteer = require('puppeteer');
 
@@ -50,7 +51,7 @@ class HealthController {
       await browser.close();
       checks.checks.browser = { status: 'ok', message: 'Browser can launch' };
     } catch (error) {
-      checks.checks.browser = { status: 'error', message: error?.message || String(error) };
+      checks.checks.browser = { status: 'error', message: getErrorMessage(error) };
       checks.status = 'degraded';
     }
 
@@ -66,7 +67,7 @@ class HealthController {
         await bucket.exists();
         checks.checks.gcs = { status: 'ok', message: 'GCS accessible' };
       } catch (error) {
-        checks.checks.gcs = { status: 'error', message: error?.message || String(error) };
+        checks.checks.gcs = { status: 'error', message: getErrorMessage(error) };
         checks.status = 'degraded';
       }
     } else {
@@ -78,4 +79,6 @@ class HealthController {
   }
 }
 
+module.exports = HealthController;
+module.exports.healthCheck = HealthController.checkHealth;
 module.exports = HealthController;

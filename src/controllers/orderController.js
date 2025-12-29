@@ -1,5 +1,6 @@
 const EcForceOrderCrawler = require("../services/crawler/EcForceOrderCrawler");
 const logger = require("../utils/logger");
+const { getErrorMessage } = require("../utils/logger");
 const OrderNotificationService = require("../services/order/OrderNotificationService");
 const OrderLoggerService = require("../services/order/OrderLoggerService");
 const { CrawlerError, ErrorCodes } = require("../middleware/errorHandler");
@@ -28,31 +29,7 @@ class OrderController {
     const formData = rawFormData;
 
     try {
-      if (!rawAccount) {
-        throw new CrawlerError(
-          "Missing required field: account",
-          ErrorCodes.VALIDATION_ERROR,
-          400
-        );
-      }
-
-      if (!rawCustomer) {
-        throw new CrawlerError(
-          "Missing required field: customer",
-          ErrorCodes.VALIDATION_ERROR,
-          400
-        );
-      }
-
-      if (!formData) {
-        throw new CrawlerError(
-          "Missing required field: form_data",
-          ErrorCodes.VALIDATION_ERROR,
-          400
-        );
-      }
-
-      // Parse JSON strings if needed
+      // Parse JSON strings if needed (validation already done by middleware)
       parsedAccount = OrderController._parseJSON(rawAccount, "account");
       parsedCustomer = OrderController._parseJSON(rawCustomer, "customer");
 
@@ -101,7 +78,7 @@ class OrderController {
         },
       });
     } catch (error) {
-      logger.error(`Order creation failed: ${error?.message || String(error)}`);
+      logger.error(`Order creation failed: ${getErrorMessage(error)}`);
 
       // Send failure notification (non-blocking)
       if (parsedAccount && parsedCustomer) {
@@ -145,7 +122,7 @@ class OrderController {
           `Invalid JSON in field: ${fieldName}`,
           ErrorCodes.VALIDATION_ERROR,
           400,
-          { parseError: error?.message || String(error) }
+          { parseError: getErrorMessage(error) }
         );
       }
     }

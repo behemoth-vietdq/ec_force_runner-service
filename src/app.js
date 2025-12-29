@@ -50,7 +50,7 @@ app.use(errorHandler);
 cleanupOldScreenshots(7);
 
 // Schedule periodic cleanup (every 24 hours)
-setInterval(() => {
+const screenshotCleanupInterval = setInterval(() => {
   cleanupOldScreenshots(7);
 }, 24 * 60 * 60 * 1000);
 
@@ -81,6 +81,12 @@ const startServer = async () => {
   const gracefulShutdown = async (signal) => {
     logger.info(`${signal} received. Starting graceful shutdown...`);
     
+    // Clear screenshot cleanup interval
+    if (screenshotCleanupInterval) {
+      clearInterval(screenshotCleanupInterval);
+      logger.info('Screenshot cleanup interval cleared');
+    }
+    
     server.close(async () => {
       logger.info('HTTP server closed');
       logger.info('Graceful shutdown completed');
@@ -100,7 +106,7 @@ const startServer = async () => {
 
   // Handle uncaught exceptions
   process.on('uncaughtException', (error) => {
-    logger.error('Uncaught Exception:', { error: error?.message || String(error), stack: error?.stack });
+    logger.error('Uncaught Exception:', { error: getErrorMessage(error), stack: error?.stack });
     gracefulShutdown('uncaughtException');
   });
 

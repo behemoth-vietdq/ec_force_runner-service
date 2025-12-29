@@ -1,6 +1,7 @@
 /**
  * URL sanitization to prevent injection attacks
  */
+const { getErrorMessage } = require('./logger');
 
 /**
  * Sanitize URL to prevent injection
@@ -26,7 +27,7 @@ function sanitizeUrl(url) {
     }
     return sanitized;
   } catch (error) {
-    throw new Error(`Invalid URL format: ${error?.message || String(error)}`);
+    throw new Error(`Invalid URL format: ${getErrorMessage(error)}`);
   }
 }
 

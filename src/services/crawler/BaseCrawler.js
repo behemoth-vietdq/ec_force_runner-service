@@ -2,6 +2,7 @@ const puppeteer = require("puppeteer");
 const config = require("../../config");
 const constants = require("../../config/constants");
 const logger = require("../../utils/logger");
+const { getErrorMessage } = require("../../utils/logger");
 const {
   saveErrorScreenshot,
   saveScreenshot,
@@ -24,6 +25,12 @@ class BaseCrawler {
    * Initialize browser instance
    */
   async initBrowser() {
+    // Don't re-initialize if browser already exists
+    if (this.browser && this.page) {
+      logger.debug('Browser already initialized, skipping');
+      return this.page;
+    }
+
     try {
       const headless = this.options.headless;
 
@@ -43,17 +50,17 @@ class BaseCrawler {
           logger.debug(`Browser console [${msg.type()}]: ${msg.text()}`)
         );
       }
-      this.page.on("pageerror", (error) => logger.error("Page error", { error: error?.message || String(error) }));
+      this.page.on("pageerror", (error) => logger.error("Page error", { error: getErrorMessage(error) }));
 
       logger.info("Browser initialized successfully");
       return this.page;
     } catch (error) {
-      logger.error(`Failed to initialize browser: ${error?.message || String(error)}`);
+      logger.error(`Failed to initialize browser: ${getErrorMessage(error)}`);
       throw new CrawlerError(
         "Failed to initialize browser",
         ErrorCodes.BROWSER_INIT_FAILED,
         500,
-        { originalError: error?.message || String(error) }
+        { originalError: getErrorMessage(error) }
       );
     }
   }
@@ -64,7 +71,7 @@ class BaseCrawler {
   async _launchBrowser(headless) {
     return await puppeteer.launch({
       headless,
-      executablePath: headless ? undefined : '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      executablePath: headless ? undefined : this._getChromeExecutablePath(),
       ignoreDefaultArgs: headless ? undefined : ['--enable-automation'],
       args: [
         "--no-sandbox",
@@ -90,6 +97,36 @@ class BaseCrawler {
         deviceScaleFactor: 1,
       },
     });
+  }
+
+  /**
+   * Get Chrome executable path based on platform
+   * @private
+   */
+  _getChromeExecutablePath() {
+    // Check environment variable first
+    if (process.env.CHROME_EXECUTABLE_PATH) {
+      logger.info(`Using Chrome from env: ${process.env.CHROME_EXECUTABLE_PATH}`);
+      return process.env.CHROME_EXECUTABLE_PATH;
+    }
+
+    // Platform-specific default paths
+    const platformPaths = {
+      darwin: '/Applications/Google Chrome.app/Contents/MacOS/Google Chrome',
+      linux: '/usr/bin/google-chrome',
+      win32: 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe'
+    };
+
+    const platform = process.platform;
+    const chromePath = platformPaths[platform];
+
+    if (!chromePath) {
+      logger.warn(`Unknown platform: ${platform}, using Puppeteer's bundled Chromium`);
+      return undefined;
+    }
+
+    logger.info(`Using Chrome for ${platform}: ${chromePath}`);
+    return chromePath;
   }
 
   /**
@@ -126,7 +163,7 @@ class BaseCrawler {
         `Failed to navigate to ${url}`,
         ErrorCodes.BROWSER_NAVIGATION_FAILED,
         500,
-        { url, originalError: error?.message || String(error) }
+        { url, originalError: getErrorMessage(error) }
       );
     }
   }
@@ -154,7 +191,7 @@ class BaseCrawler {
         `Element not found: ${selector}`,
         ErrorCodes.ELEMENT_NOT_FOUND,
         500,
-        { selector, originalError: error?.message || String(error) }
+        { selector, originalError: getErrorMessage(error) }
       );
     }
   }
@@ -179,7 +216,7 @@ class BaseCrawler {
       } catch (error) {
         lastError = error;
         logger.warn(
-          `Click attempt ${attempt} failed for ${selector}: ${error?.message || String(error)}`
+          `Click attempt ${attempt} failed for ${selector}: ${getErrorMessage(error)}`
         );
         if (attempt < maxRetries) await this.sleep(constants.DELAYS.BETWEEN_RETRIES);
       }
@@ -240,7 +277,7 @@ class BaseCrawler {
         throw new Error(`Value mismatch: expected ${value}, got ${actual}`);
       } catch (error) {
         lastError = error;
-        logger.warn(`Fill attempt ${attempt} failed: ${error?.message || String(error)}`);
+        logger.warn(`Fill attempt ${attempt} failed: ${getErrorMessage(error)}`);
         if (attempt < maxRetries) await this.sleep(constants.DELAYS.BETWEEN_RETRIES);
       }
     }
@@ -273,7 +310,7 @@ class BaseCrawler {
         `Failed to select ${selector}`,
         ErrorCodes.ELEMENT_INTERACTION_FAILED,
         500,
-        { selector, value, originalError: error?.message || String(error) }
+        { selector, value, originalError: getErrorMessage(error) }
       );
     }
   }
@@ -299,7 +336,7 @@ class BaseCrawler {
    */
   async handleError(error, context = "") {
     logger.error(
-      `Error in ${context}: ${error?.message || String(error)}\nStack: ${error?.stack || ''}`
+      `Error in ${context}: ${getErrorMessage(error)}\nStack: ${error?.stack || ''}`
     );
     if (this.page && config.crawler.screenshotsEnabled) {
       await saveErrorScreenshot(this.page, error, context);
@@ -339,7 +376,7 @@ class BaseCrawler {
         return await fn();
       } catch (error) {
         lastError = error;
-        logger.warn(`Retry ${attempt}/${maxAttempts} failed: ${error?.message || String(error)}`);
+        logger.warn(`Retry ${attempt}/${maxAttempts} failed: ${getErrorMessage(error)}`);
         if (attempt < maxAttempts) await this.sleep(delayMs);
       }
     }

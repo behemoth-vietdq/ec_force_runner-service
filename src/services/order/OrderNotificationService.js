@@ -51,7 +51,7 @@ class OrderNotificationService {
       logger.info("LINE notification sent successfully");
     } catch (error) {
       // Don't fail the order if LINE notification fails
-      logger.error(`Failed to send LINE notification: ${error?.message || String(error)}`);
+      logger.error(`Failed to send LINE notification: ${getErrorMessage(error)}`);
     }
   }
 

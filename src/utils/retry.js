@@ -4,6 +4,7 @@
  */
 
 const logger = require('./logger');
+const { getErrorMessage } = require('./logger');
 
 /**
  * Retry configuration
@@ -64,7 +65,7 @@ async function retryWithBackoff(fn, options = {}) {
       logger.warn(`${operationName} failed`, {
         attempt,
         maxAttempts,
-        error: error?.message || String(error),
+        error: getErrorMessage(error),
         errorCode: error?.code,
         willRetry: attempt < maxAttempts
       });
@@ -73,7 +74,7 @@ async function retryWithBackoff(fn, options = {}) {
       if (attempt >= maxAttempts) {
         logger.error(`${operationName} failed after ${maxAttempts} attempts`, {
           totalTime: `${Date.now() - startTime}ms`,
-          lastError: error?.message || String(error)
+          lastError: getErrorMessage(error)
         });
         break;
       }

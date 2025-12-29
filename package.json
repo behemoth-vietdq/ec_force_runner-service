@@ -5,7 +5,12 @@
   "main": "src/app.js",
   "scripts": {
     "start": "node src/app.js",
-    "dev": "nodemon src/app.js"
+    "dev": "nodemon src/app.js",    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:verbose": "jest --verbose",    "audit": "npm audit --production",
+    "audit:fix": "npm audit fix",
+    "security:check": "npm audit --audit-level=moderate"
   },
   "keywords": [
     "crawler",
@@ -18,12 +23,12 @@
   "dependencies": {
     "@google-cloud/storage": "^7.18.0",
     "axios": "^1.4.0",
-    "form-data": "^4.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-async-handler": "^1.2.0",
     "express-rate-limit": "^7.1.5",
+    "form-data": "^4.0.0",
     "helmet": "^7.1.0",
     "ioredis": "^5.3.2",
     "joi": "^17.11.0",
@@ -34,7 +39,10 @@
     "winston": "^3.11.0"
   },
   "devDependencies": {
-    "nodemon": "^3.0.2"
+    "@types/jest": "^30.0.0",
+    "jest": "^30.2.0",
+    "nodemon": "^3.0.2",
+    "supertest": "^7.1.4"
   },
   "engines": {
     "node": ">=18.0.0"
