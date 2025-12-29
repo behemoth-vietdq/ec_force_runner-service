@@ -26,7 +26,7 @@ function sanitizeUrl(url) {
     }
     return sanitized;
   } catch (error) {
-    throw new Error(`Invalid URL format: ${error.message}`);
+    throw new Error(`Invalid URL format: ${error?.message || String(error)}`);
   }
 }
 

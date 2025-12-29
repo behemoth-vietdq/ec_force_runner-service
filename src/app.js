@@ -100,7 +100,7 @@ const startServer = async () => {
 
   // Handle uncaught exceptions
   process.on('uncaughtException', (error) => {
-    logger.error('Uncaught Exception:', { error: error.message, stack: error.stack });
+    logger.error('Uncaught Exception:', { error: error?.message || String(error), stack: error?.stack });
     gracefulShutdown('uncaughtException');
   });
 

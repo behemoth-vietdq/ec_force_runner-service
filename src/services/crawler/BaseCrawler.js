@@ -1,5 +1,6 @@
 const puppeteer = require("puppeteer");
 const config = require("../../config");
+const constants = require("../../config/constants");
 const logger = require("../../utils/logger");
 const {
   saveErrorScreenshot,
@@ -42,17 +43,17 @@ class BaseCrawler {
           logger.debug(`Browser console [${msg.type()}]: ${msg.text()}`)
         );
       }
-      this.page.on("pageerror", (error) => logger.error("Page error", { error: error.message }));
+      this.page.on("pageerror", (error) => logger.error("Page error", { error: error?.message || String(error) }));
 
       logger.info("Browser initialized successfully");
       return this.page;
     } catch (error) {
-      logger.error(`Failed to initialize browser: ${error}`);
+      logger.error(`Failed to initialize browser: ${error?.message || String(error)}`);
       throw new CrawlerError(
         "Failed to initialize browser",
         ErrorCodes.BROWSER_INIT_FAILED,
         500,
-        { originalError: error.message }
+        { originalError: error?.message || String(error) }
       );
     }
   }
@@ -125,7 +126,7 @@ class BaseCrawler {
         `Failed to navigate to ${url}`,
         ErrorCodes.BROWSER_NAVIGATION_FAILED,
         500,
-        { url, originalError: error.message }
+        { url, originalError: error?.message || String(error) }
       );
     }
   }
@@ -153,7 +154,7 @@ class BaseCrawler {
         `Element not found: ${selector}`,
         ErrorCodes.ELEMENT_NOT_FOUND,
         500,
-        { selector, originalError: error.message }
+        { selector, originalError: error?.message || String(error) }
       );
     }
   }
@@ -162,7 +163,7 @@ class BaseCrawler {
    * Click element with retries and scroll into view
    */
   async clickElement(selector, options = {}) {
-    const maxRetries = options.maxRetries || config.crawler.maxRetries;
+    const maxRetries = options.maxRetries || constants.RETRIES.CLICK_MAX;
     let lastError;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -171,16 +172,16 @@ class BaseCrawler {
           (el) => el.scrollIntoView({ behavior: "smooth", block: "center" }),
           element
         );
-        await this.sleep(300);
+        await this.sleep(constants.DELAYS.AFTER_SCROLL);
         await element.click();
         logger.debug(`Element clicked: ${selector}`);
         return;
       } catch (error) {
         lastError = error;
         logger.warn(
-          `Click attempt ${attempt} failed for ${selector}: ${error.message}`
+          `Click attempt ${attempt} failed for ${selector}: ${error?.message || String(error)}`
         );
-        if (attempt < maxRetries) await this.sleep(config.crawler.retryDelayMs);
+        if (attempt < maxRetries) await this.sleep(constants.DELAYS.BETWEEN_RETRIES);
       }
     }
     // Fallback JS click
@@ -199,7 +200,7 @@ class BaseCrawler {
         `Failed to click ${selector} after ${maxRetries} attempts`,
         ErrorCodes.ELEMENT_INTERACTION_FAILED,
         500,
-        { selector, originalError: lastError.message }
+        { selector, originalError: lastError?.message || String(lastError) }
       );
     }
   }
@@ -209,7 +210,7 @@ class BaseCrawler {
    */
   async fillInput(selector, value, options = {}) {
     if (!value) return;
-    const maxRetries = options.maxRetries || 3;
+    const maxRetries = options.maxRetries || constants.RETRIES.FILL_INPUT_MAX;
     let lastError;
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
@@ -218,15 +219,15 @@ class BaseCrawler {
           (el) => el.scrollIntoView({ behavior: "smooth", block: "center" }),
           element
         );
-        await this.sleep(200);
+        await this.sleep(constants.DELAYS.BEFORE_CLICK);
         await element.click();
-        await this.sleep(100);
+        await this.sleep(constants.DELAYS.BEFORE_TYPE);
         // Clear and type
         await this.page.evaluate((sel) => {
           const el = document.querySelector(sel);
           if (el) el.value = "";
         }, selector);
-        await element.type(value, { delay: 50 });
+        await element.type(value, { delay: constants.DELAYS.TYPING_DELAY });
         // Verify
         const actual = await this.page.evaluate(
           (sel) => document.querySelector(sel)?.value,
@@ -239,8 +240,8 @@ class BaseCrawler {
         throw new Error(`Value mismatch: expected ${value}, got ${actual}`);
       } catch (error) {
         lastError = error;
-        logger.warn(`Fill attempt ${attempt} failed: ${error.message}`);
-        if (attempt < maxRetries) await this.sleep(500);
+        logger.warn(`Fill attempt ${attempt} failed: ${error?.message || String(error)}`);
+        if (attempt < maxRetries) await this.sleep(constants.DELAYS.BETWEEN_RETRIES);
       }
     }
     await this.handleError(
@@ -251,7 +252,7 @@ class BaseCrawler {
       `Failed to fill ${selector} after ${maxRetries} attempts`,
       ErrorCodes.ELEMENT_INTERACTION_FAILED,
       500,
-      { selector, value, originalError: lastError.message }
+      { selector, value, originalError: lastError?.message || String(lastError) }
     );
   }
 
@@ -272,7 +273,7 @@ class BaseCrawler {
         `Failed to select ${selector}`,
         ErrorCodes.ELEMENT_INTERACTION_FAILED,
         500,
-        { selector, value, originalError: error.message }
+        { selector, value, originalError: error?.message || String(error) }
       );
     }
   }
@@ -298,9 +299,9 @@ class BaseCrawler {
    */
   async handleError(error, context = "") {
     logger.error(
-      `Error in ${context}: ${error.message}\nStack: ${error.stack}`
+      `Error in ${context}: ${error?.message || String(error)}\nStack: ${error?.stack || ''}`
     );
-    if (this.page && config.screenshots.enabled) {
+    if (this.page && config.crawler.screenshotsEnabled) {
       await saveErrorScreenshot(this.page, error, context);
     }
   }
@@ -329,8 +330,8 @@ class BaseCrawler {
    */
   async withRetry(
     fn,
-    maxAttempts = config.crawler.maxRetries,
-    delayMs = config.crawler.retryDelayMs
+    maxAttempts = constants.RETRIES.DEFAULT_MAX,
+    delayMs = constants.DELAYS.BETWEEN_RETRIES * 4
   ) {
     let lastError;
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
@@ -338,9 +339,14 @@ class BaseCrawler {
         return await fn();
       } catch (error) {
         lastError = error;
-        logger.warn(`Retry ${attempt}/${maxAttempts} failed: ${error.message}`);
+        logger.warn(`Retry ${attempt}/${maxAttempts} failed: ${error?.message || String(error)}`);
         if (attempt < maxAttempts) await this.sleep(delayMs);
       }
+    }
+    
+    // Ensure we always throw a proper error
+    if (!lastError) {
+      lastError = new Error('Retry failed with unknown error');
     }
     throw lastError;
   }

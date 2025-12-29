@@ -146,7 +146,7 @@ async function saveErrorScreenshot(page, error, context = "") {
 
     logger.error(
       `Error screenshot captured - error: ${
-        error.message
+        error?.message || String(error)
       }, context: ${context}, local: ${screenshotPath}, gcs: ${
         gcsUrl || "not uploaded"
       }`

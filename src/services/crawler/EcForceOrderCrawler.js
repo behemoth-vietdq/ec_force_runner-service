@@ -2,7 +2,6 @@ const BaseCrawler = require("./BaseCrawler");
 const logger = require("../../utils/logger");
 const { CrawlerError, ErrorCodes } = require("../../middleware/errorHandler");
 const { sanitizeUrl, sanitizeCustomerId } = require("../../utils/sanitizer");
-const { retryWithBackoff } = require("../../utils/retry");
 // Order notifications are handled at controller level to centralize failure handling
 
 // Centralize selectors and texts for easy maintenance
@@ -140,16 +139,14 @@ class EcForceOrderCrawler extends BaseCrawler {
     );
 
     try {
-      // Execute with retry logic
-      await retryWithBackoff(async () => {
-        await this.initBrowser();
-        await this.page.setViewport({ width: 1920, height: 1080 });
-        await this.run();
-      }, {
-        maxAttempts: 3,
-        initialDelay: 2000,
-        operationName: 'EC-Force order creation'
-      });
+      await this.initBrowser();
+      logger.debug('Browser initialized, setting viewport');
+      
+      await this.page.setViewport({ width: 1920, height: 1080 });
+      logger.debug('Viewport set, starting run');
+      
+      await this.run();
+      logger.debug('Run completed successfully');
 
       const executionTime = Date.now() - startTime;
       logger.info(
@@ -164,10 +161,28 @@ class EcForceOrderCrawler extends BaseCrawler {
     } catch (error) {
       const executionTime = Date.now() - startTime;
 
+      // Handle undefined errors
+      if (error === undefined || error === null) {
+        logger.error(`Order creation failed with undefined/null error - executionTime: ${executionTime}ms`);
+        logger.error('Stack trace:', new Error('Undefined error occurred').stack);
+        
+        const wrappedError = new CrawlerError(
+          'Unknown error occurred (error was undefined)',
+          ErrorCodes.INTERNAL_ERROR,
+          500
+        );
+        
+        await this.handleError(
+          wrappedError,
+          `ec_order_failed_${this.customer.ext_id}_${Date.now()}`
+        );
+        throw wrappedError;
+      }
+
       logger.error(
-        `Order creation failed - executionTime: ${executionTime}ms, error: ${error.message}`
+        `Order creation failed - executionTime: ${executionTime}ms, error: ${error?.message || String(error)}`
       );
-      logger.error(error.stack);
+      logger.error(error?.stack || String(error));
 
       await this.handleError(
         error,

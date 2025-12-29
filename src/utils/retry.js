@@ -64,8 +64,8 @@ async function retryWithBackoff(fn, options = {}) {
       logger.warn(`${operationName} failed`, {
         attempt,
         maxAttempts,
-        error: error.message,
-        errorCode: error.code,
+        error: error?.message || String(error),
+        errorCode: error?.code,
         willRetry: attempt < maxAttempts
       });
 
@@ -73,7 +73,7 @@ async function retryWithBackoff(fn, options = {}) {
       if (attempt >= maxAttempts) {
         logger.error(`${operationName} failed after ${maxAttempts} attempts`, {
           totalTime: `${Date.now() - startTime}ms`,
-          lastError: error.message
+          lastError: error?.message || String(error)
         });
         break;
       }

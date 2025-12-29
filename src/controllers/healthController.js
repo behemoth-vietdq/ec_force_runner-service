@@ -50,7 +50,7 @@ class HealthController {
       await browser.close();
       checks.checks.browser = { status: 'ok', message: 'Browser can launch' };
     } catch (error) {
-      checks.checks.browser = { status: 'error', message: error.message };
+      checks.checks.browser = { status: 'error', message: error?.message || String(error) };
       checks.status = 'degraded';
     }
 
@@ -66,7 +66,7 @@ class HealthController {
         await bucket.exists();
         checks.checks.gcs = { status: 'ok', message: 'GCS accessible' };
       } catch (error) {
-        checks.checks.gcs = { status: 'error', message: error.message };
+        checks.checks.gcs = { status: 'error', message: error?.message || String(error) };
         checks.status = 'degraded';
       }
     } else {

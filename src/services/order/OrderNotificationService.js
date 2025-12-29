@@ -51,7 +51,7 @@ class OrderNotificationService {
       logger.info("LINE notification sent successfully");
     } catch (error) {
       // Don't fail the order if LINE notification fails
-      logger.error(`Failed to send LINE notification: ${error.message}`);
+      logger.error(`Failed to send LINE notification: ${error?.message || String(error)}`);
     }
   }
 
@@ -95,7 +95,7 @@ class OrderNotificationService {
       const flexMessage = buildFailureFlex(displayName, product, shopUrl);
       await sendFlex(account, customerLineUserId, [flexMessage]);
     } catch (err) {
-      logger.error(`Failed to send LINE failure notification: ${err.message}`);
+      logger.error(`Failed to send LINE failure notification: ${err?.message || String(err)}`);
     }
   }
 }

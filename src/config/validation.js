@@ -85,7 +85,6 @@ function validateConfig(config) {
     }).join('\n');
 
     const errorMessage = `Configuration validation failed:\n${errorMessages}`;
-    console.error(errorMessage);
     throw new Error(errorMessage);
   }
 

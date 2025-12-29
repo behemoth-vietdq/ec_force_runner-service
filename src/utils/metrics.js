@@ -190,8 +190,8 @@ async function getMetrics(req, res) {
     res.set('Content-Type', register.contentType);
     res.end(await register.metrics());
   } catch (error) {
-    logger.error('Error generating metrics', { error: error.message });
-    res.status(500).end(error.message);
+    logger.error('Error generating metrics', { error: error?.message || String(error) });
+    res.status(500).end(error?.message || String(error));
   }
 }
 

@@ -101,7 +101,7 @@ class OrderController {
         },
       });
     } catch (error) {
-      logger.error(`Order creation failed: ${error.message}`);
+      logger.error(`Order creation failed: ${error?.message || String(error)}`);
 
       // Send failure notification (non-blocking)
       if (parsedAccount && parsedCustomer) {
@@ -113,7 +113,7 @@ class OrderController {
             shopUrl: parsedAccount.options?.ec_force_info?.shop_url,
           }
         ).catch((notifyErr) =>
-          logger.error(`Failed to send failure notification: ${notifyErr.message}`)
+          logger.error(`Failed to send failure notification: ${notifyErr?.message || String(notifyErr)}`)
         );
       }
 
@@ -126,7 +126,7 @@ class OrderController {
         } catch (cleanupError) {
           logger.error("Failed to cleanup crawler", {
             requestId,
-            error: cleanupError.message,
+            error: cleanupError?.message || String(cleanupError),
           });
         }
       }
@@ -145,7 +145,7 @@ class OrderController {
           `Invalid JSON in field: ${fieldName}`,
           ErrorCodes.VALIDATION_ERROR,
           400,
-          { parseError: error.message }
+          { parseError: error?.message || String(error) }
         );
       }
     }
