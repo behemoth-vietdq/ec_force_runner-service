@@ -1,22 +1,34 @@
 require("dotenv").config();
 const { validateConfig } = require("./validation");
 
+/**
+ * Safely parse integer with fallback
+ * Returns fallback if value is NaN, undefined, or invalid
+ */
+const safeParseInt = (value, fallback, min = 0) => {
+  const parsed = parseInt(value, 10);
+  if (isNaN(parsed) || parsed < min) {
+    return fallback;
+  }
+  return parsed;
+};
+
 const config = {
   server: {
-    port: parseInt(process.env.APP_PORT, 10) || 4000,
+    port: safeParseInt(process.env.APP_PORT, 4000, 1),
     host: "0.0.0.0",
     env: process.env.APP_ENV || "development",
     corsOrigin: process.env.CORS_ORIGIN || "http://localhost:3000",
     // graceful shutdown timeout (ms)
-    shutdownTimeout: parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10) || 300000,
+    shutdownTimeout: safeParseInt(process.env.SHUTDOWN_TIMEOUT_MS, 300000, 1000),
     // request / operation timeout (ms) - used to configure server socket timeout
-    requestTimeout: parseInt(process.env.REQUEST_TIMEOUT_MS, 10) || 300000,
+    requestTimeout: safeParseInt(process.env.REQUEST_TIMEOUT_MS, 300000, 1000),
   },
 
   puppeteer: {
     headless: process.env.CRAWLER_DEBUGGING !== "true",
     defaultViewport: { width: 1920, height: 1080 },
-    timeout: parseInt(process.env.PUPPETEER_TIMEOUT, 10) || 300000,
+    timeout: safeParseInt(process.env.PUPPETEER_TIMEOUT, 300000, 1000),
   },
 
   logging: {
@@ -38,13 +50,15 @@ const config = {
   },
 
   apiKeys: {
-    admin: (process.env.API_KEY || "").split(",").filter(Boolean),
+    admin: process.env.API_KEY 
+      ? process.env.API_KEY.split(",").filter(Boolean)
+      : [], // Empty array will fail validation
   },
 
   security: {
     enableRateLimit: process.env.ENABLE_RATE_LIMIT !== "false",
-    rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW_MS, 10) || 60000,
-    rateLimitMaxRequests: parseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 10) || 60,
+    rateLimitWindowMs: safeParseInt(process.env.RATE_LIMIT_WINDOW_MS, 60000, 1000),
+    rateLimitMaxRequests: safeParseInt(process.env.RATE_LIMIT_MAX_REQUESTS, 60, 1),
   },
 
   lineMessaging: {

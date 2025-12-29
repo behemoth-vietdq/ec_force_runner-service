@@ -5,16 +5,17 @@
 
 const logger = require('./logger');
 const { getErrorMessage } = require('./logger');
+const constants = require('../config/constants');
 
 /**
- * Retry configuration
+ * Retry configuration (use centralized constants)
  */
 const DEFAULT_CONFIG = {
-  maxAttempts: 3,
-  initialDelay: 1000,      // 1 second
-  maxDelay: 30000,         // 30 seconds
-  backoffMultiplier: 2,
-  timeout: 300000,         // 5 minutes
+  maxAttempts: constants.RETRY.MAX_ATTEMPTS,
+  initialDelay: constants.RETRY.INITIAL_DELAY,
+  maxDelay: constants.RETRY.MAX_DELAY,
+  backoffMultiplier: constants.RETRY.BACKOFF_MULTIPLIER,
+  timeout: constants.RETRY.TIMEOUT,
 };
 
 /**

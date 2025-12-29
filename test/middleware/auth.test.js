@@ -39,15 +39,6 @@ describe('Auth Middleware', () => {
     expect(res.status).not.toHaveBeenCalled();
   });
 
-  it('should allow request with valid API key in query', () => {
-    req.query.api_key = 'test-api-key';
-    
-    authMiddleware(req, res, next);
-
-    expect(next).toHaveBeenCalledTimes(1);
-    expect(res.status).not.toHaveBeenCalled();
-  });
-
   it('should reject request without API key', () => {
     authMiddleware(req, res, next);
 
@@ -56,19 +47,26 @@ describe('Auth Middleware', () => {
       success: false,
       error: {
         code: 'UNAUTHORIZED',
-        message: expect.stringContaining('API key required')
+        message: 'API key required in X-API-Key header'
       }
     });
     expect(next).not.toHaveBeenCalled();
   });
 
-  it('should prioritize header over query parameter', () => {
-    req.headers['x-api-key'] = 'test-api-key';
-    req.query.api_key = 'wrong-key';
+  it('should reject request with invalid API key', () => {
+    req.headers['x-api-key'] = 'wrong-key';
     
     authMiddleware(req, res, next);
 
-    expect(next).toHaveBeenCalledTimes(1);
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({
+      success: false,
+      error: {
+        code: 'UNAUTHORIZED',
+        message: 'Invalid API key'
+      }
+    });
+    expect(next).not.toHaveBeenCalled();
   });
 
   it('should be case-sensitive for API keys', () => {

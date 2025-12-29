@@ -3,6 +3,7 @@ const helmet = require('helmet');
 const cors = require('cors');
 const config = require('./config');
 const logger = require('./utils/logger');
+const { getErrorMessage } = require('./utils/logger');
 const routes = require('./routes');
 const requestIdMiddleware = require('./middleware/requestId');
 const { requestContextMiddleware } = require('./utils/asyncContext');
@@ -50,9 +51,11 @@ app.use(errorHandler);
 cleanupOldScreenshots(7);
 
 // Schedule periodic cleanup (every 24 hours)
+// Use unref() so this doesn't prevent process from exiting
 const screenshotCleanupInterval = setInterval(() => {
   cleanupOldScreenshots(7);
 }, 24 * 60 * 60 * 1000);
+screenshotCleanupInterval.unref();
 
 // Start server
 const startServer = async () => {
@@ -87,17 +90,23 @@ const startServer = async () => {
       logger.info('Screenshot cleanup interval cleared');
     }
     
-    server.close(async () => {
-      logger.info('HTTP server closed');
+    // Stop accepting new connections
+    server.close(() => {
+      logger.info('HTTP server closed - no longer accepting new connections');
+      
+      // Give active requests time to complete
+      logger.info('Waiting for active requests to complete...');
+      
+      // Exit gracefully after server closes all connections
       logger.info('Graceful shutdown completed');
       process.exit(0);
     });
 
     // Force shutdown after configured timeout (default 5 minutes)
     setTimeout(() => {
-      logger.error('Forced shutdown after timeout');
+      logger.error(`Forced shutdown after ${config.server.shutdownTimeout}ms timeout`);
       process.exit(1);
-    }, config.server.shutdownTimeout);
+    }, config.server.shutdownTimeout).unref(); // unref so it doesn't prevent exit
   };
 
   // Handle shutdown signals

@@ -9,12 +9,14 @@ describe('Sanitizer Utils', () => {
 
     it('should allow valid HTTP URLs', () => {
       const url = 'http://example.com';
-      expect(sanitizeUrl(url)).toBe(url);
+      // URL constructor adds trailing slash
+      expect(sanitizeUrl(url)).toBe('http://example.com/');
     });
 
     it('should allow URLs with authentication', () => {
       const url = 'https://user:pass@example.com';
-      expect(sanitizeUrl(url)).toBe(url);
+      // URL constructor adds trailing slash
+      expect(sanitizeUrl(url)).toBe('https://user:pass@example.com/');
     });
 
     it('should throw on invalid URLs', () => {
@@ -24,8 +26,8 @@ describe('Sanitizer Utils', () => {
     });
 
     it('should throw on non-http(s) protocols', () => {
-      expect(() => sanitizeUrl('ftp://example.com')).toThrow(/Invalid URL/);
-      expect(() => sanitizeUrl('file:///etc/passwd')).toThrow(/Invalid URL/);
+      expect(() => sanitizeUrl('ftp://example.com')).toThrow(/Only HTTP and HTTPS/);
+      expect(() => sanitizeUrl('file:///etc/passwd')).toThrow(/Only HTTP and HTTPS/);
     });
 
     it('should handle URLs with special characters', () => {
@@ -48,10 +50,10 @@ describe('Sanitizer Utils', () => {
     });
 
     it('should throw on customer IDs with special characters', () => {
-      expect(() => sanitizeCustomerId('abc@123')).toThrow(/invalid characters/);
-      expect(() => sanitizeCustomerId('abc 123')).toThrow(/invalid characters/);
-      expect(() => sanitizeCustomerId('abc#123')).toThrow(/invalid characters/);
-      expect(() => sanitizeCustomerId('abc$123')).toThrow(/invalid characters/);
+      expect(() => sanitizeCustomerId('abc@123')).toThrow(/Only alphanumeric, dash, and underscore allowed/);
+      expect(() => sanitizeCustomerId('abc 123')).toThrow(/Only alphanumeric, dash, and underscore allowed/);
+      expect(() => sanitizeCustomerId('abc#123')).toThrow(/Only alphanumeric, dash, and underscore allowed/);
+      expect(() => sanitizeCustomerId('abc$123')).toThrow(/Only alphanumeric, dash, and underscore allowed/);
     });
 
     it('should throw on empty or null customer IDs', () => {
@@ -62,14 +64,12 @@ describe('Sanitizer Utils', () => {
 
     it('should throw on customer IDs that are too long', () => {
       const longId = 'a'.repeat(101);
-      // Long IDs are allowed, just sanitized
-      const result = sanitizeCustomerId(longId);
-      expect(result).toBe(longId);
+      expect(() => sanitizeCustomerId(longId)).toThrow(/must be between 1 and 100 characters/);
     });
 
     it('should throw on SQL injection attempts', () => {
-      expect(() => sanitizeCustomerId("'; DROP TABLE users--")).toThrow(/invalid characters/);
-      expect(() => sanitizeCustomerId("1' OR '1'='1")).toThrow(/invalid characters/);
+      expect(() => sanitizeCustomerId("'; DROP TABLE users--")).toThrow(/Only alphanumeric, dash, and underscore allowed/);
+      expect(() => sanitizeCustomerId("1' OR '1'='1")).toThrow(/Only alphanumeric, dash, and underscore allowed/);
     });
   });
 });

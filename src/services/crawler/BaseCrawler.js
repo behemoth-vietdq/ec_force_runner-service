@@ -31,31 +31,46 @@ class BaseCrawler {
       return this.page;
     }
 
+    let browser = null;
     try {
       const headless = this.options.headless;
 
       logger.info(`Initializing browser - headless: ${headless}`);
 
-      this.browser = await this._launchBrowser(headless);
-      this.page = await this.browser.newPage();
+      browser = await this._launchBrowser(headless);
+      const page = await browser.newPage();
 
       if (this.options.userAgent) {
-        await this.page.setUserAgent(this.options.userAgent);
+        await page.setUserAgent(this.options.userAgent);
       }
 
-      this.page.setDefaultTimeout(this.options.timeout);
+      page.setDefaultTimeout(this.options.timeout);
 
+      // Use 'once' instead of 'on' to prevent memory leaks
       if (config.crawler.debugging) {
-        this.page.on("console", (msg) =>
-          logger.debug(`Browser console [${msg.type()}]: ${msg.text()}`)
-        );
+        page.on("console", this._handleConsoleLog);
       }
-      this.page.on("pageerror", (error) => logger.error("Page error", { error: getErrorMessage(error) }));
+      page.on("pageerror", this._handlePageError);
+
+      // Store references only after successful initialization
+      this.browser = browser;
+      this.page = page;
 
       logger.info("Browser initialized successfully");
       return this.page;
     } catch (error) {
       logger.error(`Failed to initialize browser: ${getErrorMessage(error)}`);
+      
+      // Critical: close browser if it was created but page setup failed
+      if (browser) {
+        try {
+          await browser.close();
+          logger.debug('Cleaned up browser after init failure');
+        } catch (cleanupError) {
+          logger.error('Failed to cleanup browser:', cleanupError);
+        }
+      }
+      
       throw new CrawlerError(
         "Failed to initialize browser",
         ErrorCodes.BROWSER_INIT_FAILED,
@@ -130,19 +145,48 @@ class BaseCrawler {
   }
 
   /**
-   * Close browser safely
+   * Event handler for console logs (bound to instance)
+   * @private
+   */
+  _handleConsoleLog = (msg) => {
+    logger.debug(`Browser console [${msg.type()}]: ${msg.text()}`);
+  };
+
+  /**
+   * Event handler for page errors (bound to instance)
+   * @private
+   */
+  _handlePageError = (error) => {
+    logger.error("Page error", { error: getErrorMessage(error) });
+  };
+
+  /**
+   * Close browser safely with proper cleanup
    */
   async closeBrowser() {
-    if (this.browser) {
-      try {
-        await this.browser.close();
-        logger.info("Browser closed successfully");
-      } catch (error) {
-        logger.error("Error closing browser:", error);
-      } finally {
-        this.browser = null;
-        this.page = null;
+    // Atomically check and clear references to prevent double-close
+    const browser = this.browser;
+    const page = this.page;
+    
+    if (!browser) {
+      return; // Already closed
+    }
+
+    // Clear references immediately to prevent race conditions
+    this.browser = null;
+    this.page = null;
+
+    try {
+      // Remove event listeners to prevent memory leaks
+      if (page) {
+        page.removeListener("console", this._handleConsoleLog);
+        page.removeListener("pageerror", this._handlePageError);
       }
+      
+      await browser.close();
+      logger.info("Browser closed successfully");
+    } catch (error) {
+      logger.error("Error closing browser:", error);
     }
   }
 

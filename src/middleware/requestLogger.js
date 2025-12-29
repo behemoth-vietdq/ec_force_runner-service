@@ -15,8 +15,8 @@ const requestLogger = (req, res, next) => {
     `Started ${req.method} "${req.originalUrl}" for ${clientIp} at ${timestamp}`
   );
 
-  // Capture response
-  res.on('finish', () => {
+  // Capture response - use once to prevent memory leaks
+  const logCompletion = () => {
     const duration = Date.now() - start;
     const { statusCode } = res;
 
@@ -29,7 +29,10 @@ const requestLogger = (req, res, next) => {
         `Completed ${statusCode} in ${duration}ms`
       );
     }
-  });
+  };
+  
+  res.once('finish', logCompletion);
+  res.once('error', logCompletion); // Also log on error
 
   next();
 };

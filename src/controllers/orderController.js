@@ -56,7 +56,7 @@ class OrderController {
         parsedCustomer,
         result.data?.order_id
       ).catch((err) =>
-        logger.error(`Failed to log EC-Force order params: ${err.message}`)
+        logger.error(`Failed to log EC-Force order params: ${getErrorMessage(err)}`)
       );
 
       // Send success notification (non-blocking)
@@ -65,7 +65,7 @@ class OrderController {
         parsedAccount,
         parsedCustomer
       ).catch((err) =>
-        logger.error(`Failed to send success notification: ${err.message}`)
+        logger.error(`Failed to send success notification: ${getErrorMessage(err)}`)
       );
 
       // Return success response

@@ -5,27 +5,24 @@ const { getErrorMessage } = require('./logger');
 
 /**
  * Sanitize URL to prevent injection
+ * Uses whitelist approach after validation
  */
 function sanitizeUrl(url) {
   if (!url || typeof url !== 'string') {
     throw new Error('Invalid URL');
   }
 
-  // Remove any dangerous characters
-  const sanitized = url
-    .trim()
-    .replace(/[<>'"]/g, '') // Remove HTML/JS injection chars
-    .replace(/javascript:/gi, '') // Remove javascript: protocol
-    .replace(/data:/gi, '') // Remove data: protocol
-    .replace(/vbscript:/gi, ''); // Remove vbscript: protocol
+  const trimmed = url.trim();
 
-  // Validate it's a proper HTTP/HTTPS URL
+  // Validate it's a proper HTTP/HTTPS URL first
   try {
-    const parsed = new URL(sanitized);
+    const parsed = new URL(trimmed);
     if (!['http:', 'https:'].includes(parsed.protocol)) {
-      throw new Error('Invalid URL protocol');
+      throw new Error('Only HTTP and HTTPS protocols are allowed');
     }
-    return sanitized;
+    
+    // Return the validated URL (URL constructor already sanitizes)
+    return parsed.href;
   } catch (error) {
     throw new Error(`Invalid URL format: ${getErrorMessage(error)}`);
   }
@@ -33,6 +30,7 @@ function sanitizeUrl(url) {
 
 /**
  * Sanitize query parameter to prevent injection
+ * Uses whitelist approach for better security
  */
 function sanitizeQueryParam(param) {
   if (!param) return '';
@@ -41,12 +39,13 @@ function sanitizeQueryParam(param) {
     param = String(param);
   }
 
-  // Remove dangerous characters that could be used in injection attacks
-  return param
+  // Whitelist: only allow safe characters (alphanumeric, space, basic punctuation)
+  const sanitized = param
     .trim()
-    .replace(/[<>'"&;`|*?~$^()[\]{}\\]/g, '') // Remove shell/SQL/XSS chars
-    .replace(/\.\./g, '') // Remove directory traversal
+    .replace(/[^a-zA-Z0-9 .,@_-]/g, '') // Only allow safe chars
     .substring(0, 255); // Limit length
+
+  return sanitized;
 }
 
 /**
@@ -66,17 +65,25 @@ function sanitizeObject(obj, fields) {
 
 /**
  * Validate and sanitize customer ID
+ * Only allows alphanumeric, dash, underscore with length limits
  */
 function sanitizeCustomerId(customerId) {
   if (!customerId) {
     throw new Error('Customer ID is required');
   }
 
-  // Only allow alphanumeric and dash/underscore
-  const sanitized = String(customerId).replace(/[^a-zA-Z0-9_-]/g, '');
+  const str = String(customerId);
   
-  if (sanitized !== String(customerId)) {
-    throw new Error('Customer ID contains invalid characters');
+  // Length validation
+  if (str.length < 1 || str.length > 100) {
+    throw new Error('Customer ID must be between 1 and 100 characters');
+  }
+
+  // Whitelist: only alphanumeric, dash, underscore
+  const sanitized = str.replace(/[^a-zA-Z0-9_-]/g, '');
+  
+  if (sanitized !== str) {
+    throw new Error('Customer ID contains invalid characters. Only alphanumeric, dash, and underscore allowed');
   }
 
   return sanitized;

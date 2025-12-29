@@ -1,9 +1,35 @@
+const crypto = require('crypto');
 const config = require('../config');
 const logger = require('../utils/logger');
 
 /**
+ * Constant-time string comparison to prevent timing attacks
+ * @param {string} a - First string
+ * @param {string} b - Second string
+ * @returns {boolean} True if strings are equal
+ */
+function constantTimeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') {
+    return false;
+  }
+  
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  
+  // If lengths differ, still compare to prevent timing attack
+  if (bufA.length !== bufB.length) {
+    // Compare with a dummy buffer of same length as bufA
+    crypto.timingSafeEqual(bufA, Buffer.alloc(bufA.length));
+    return false;
+  }
+  
+  return crypto.timingSafeEqual(bufA, bufB);
+}
+
+/**
  * API Key authentication middleware
- * Validates X-API-Key header or api_key query parameter against configured keys
+ * Validates X-API-Key header against configured keys
+ * Note: Query param support removed for security (avoids logging/caching API keys)
  */
 const authMiddleware = (req, res, next) => {
   const validKeys = config.apiKeys.admin;
@@ -24,7 +50,7 @@ const authMiddleware = (req, res, next) => {
     });
   }
 
-  const apiKey = req.headers['x-api-key'] || req.query.api_key;
+  const apiKey = req.headers['x-api-key'];
 
   if (!apiKey) {
     logger.warn(`Authentication failed - no API key provided - IP: ${req.ip}`);
@@ -32,12 +58,15 @@ const authMiddleware = (req, res, next) => {
       success: false,
       error: {
         code: 'UNAUTHORIZED',
-        message: 'API key required. Provide in X-API-Key header or api_key query parameter',
+        message: 'API key required in X-API-Key header',
       },
     });
   }
 
-  if (!validKeys.includes(apiKey)) {
+  // Use constant-time comparison to prevent timing attacks
+  const isValidKey = validKeys.some(validKey => constantTimeCompare(apiKey, validKey));
+  
+  if (!isValidKey) {
     logger.warn(`Authentication failed - invalid API key - IP: ${req.ip}`);
     return res.status(401).json({
       success: false,
