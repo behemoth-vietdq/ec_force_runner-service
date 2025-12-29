@@ -43,25 +43,18 @@ module.exports = {
     SIGNED_URL_EXPIRY_MS: 3600000,
   },
 
-  // Circuit breaker configuration
-  CIRCUIT_BREAKER: {
-    FAILURE_THRESHOLD: 5,
-    SUCCESS_THRESHOLD: 2,
-    TIMEOUT: 300000, // 5 minutes
-    RESET_TIMEOUT: 60000,
+  // Retry configuration  
+  RETRY: {
+    MAX_ATTEMPTS: 3,
+    INITIAL_DELAY: 2000,      // 2 seconds
+    MAX_DELAY: 30000,         // 30 seconds
+    BACKOFF_MULTIPLIER: 2,
+    TIMEOUT: 300000,          // 5 minutes
   },
 
   // Health check
   HEALTH_CHECK: {
     BROWSER_TEST_TIMEOUT: 5000,
     GCS_TEST_TIMEOUT: 3000,
-  },
-
-  // Browser pool
-  BROWSER_POOL: {
-    MIN_INSTANCES: 1,
-    MAX_INSTANCES: 5,
-    INSTANCE_TIMEOUT: 1800000, // 30 minutes
-    MAX_USAGE_COUNT: 100,
   },
 };

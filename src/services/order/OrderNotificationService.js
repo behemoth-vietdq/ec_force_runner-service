@@ -92,7 +92,6 @@ class OrderNotificationService {
       const product = opts.product || {};
       const shopUrl = opts.shopUrl || account?.options?.ec_force_info?.shop_url || "";
 
-      console.log("flexMessage", shopUrl ) 
       const flexMessage = buildFailureFlex(displayName, product, shopUrl);
       await sendFlex(account, customerLineUserId, [flexMessage]);
     } catch (err) {

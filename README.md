@@ -1,19 +1,17 @@
 # Line Shop Runner Service
 
-A production-ready Node.js service for automating order creation on EC-Force platform using Puppeteer. Designed for Kubernetes deployment with horizontal scaling, shared circuit breaker state, and comprehensive monitoring.
+Production-ready Node.js service for automating EC-Force order creation using Puppeteer. Designed for Kubernetes deployment with horizontal scaling and comprehensive monitoring.
 
 ## 🚀 Features
 
 ### Core Features
 - **Browser Automation**: Powered by Puppeteer for reliable web automation
 - **RESTful API**: Simple and intuitive API endpoints
-- **Browser Pooling**: Efficient browser instance management (1-5 instances)
 - **Error Handling**: Comprehensive error handling with automatic screenshots
-- **Retry Logic**: Automatic retries for failed operations with exponential backoff
+- **Retry Logic**: Exponential backoff for failed operations
 - **Logging**: Detailed logging with Winston and async context tracking
 
 ### Production Features
-- **🔄 Distributed Circuit Breaker**: Redis-based shared state across all pods
 - **📊 Prometheus Metrics**: Comprehensive metrics for monitoring and alerting
 - **☸️ Kubernetes Ready**: HPA-compatible with proper health checks
 - **🔒 Security**: API key authentication, rate limiting, input sanitization, Helmet, CORS
@@ -24,8 +22,6 @@ A production-ready Node.js service for automating order creation on EC-Force pla
 
 ### Observability & Monitoring
 - HTTP request metrics (duration, count, in-progress)
-- Browser pool metrics (size by status, wait time, lifecycle)
-- Circuit breaker metrics (state, failures, transitions, open duration)
 - Crawler metrics (execution time, errors, step timing)
 - Business metrics (orders created/failed by shop)
 - GCS upload metrics (duration, success rate)
@@ -35,7 +31,6 @@ A production-ready Node.js service for automating order creation on EC-Force pla
 - Node.js >= 18.0.0
 - npm
 - Chrome/Chromium (automatically installed by Puppeteer)
-- Redis (for distributed circuit breaker) - Optional but recommended for multi-pod deployments
 - Google Cloud Storage (optional, for screenshot storage)
 - Kubernetes 1.20+ (for production deployment)
 
@@ -70,11 +65,6 @@ API_KEY=your-secret-api-key
 
 # Crawler settings
 CRAWLER_DEBUGGING=true
-
-# Redis (for distributed circuit breaker)
-REDIS_URL=redis://localhost:6379
-REDIS_PASSWORD=
-REDIS_DB=0
 
 # Metrics
 METRICS_ENABLED=true
@@ -282,6 +272,11 @@ Get the status of an order creation request.
 
 Prometheus-compatible metrics endpoint for monitoring.
 
+
+**GET** `/metrics`
+
+Prometheus-compatible metrics endpoint for monitoring.
+
 **Response:**
 ```
 # HELP http_request_duration_seconds HTTP request duration in seconds
@@ -290,19 +285,9 @@ http_request_duration_seconds_bucket{method="POST",route="/api/orders/create",st
 http_request_duration_seconds_bucket{method="POST",route="/api/orders/create",status="200",le="0.5"} 120
 ...
 
-# HELP circuit_breaker_state Circuit breaker state (0=CLOSED, 1=HALF_OPEN, 2=OPEN)
-# TYPE circuit_breaker_state gauge
-circuit_breaker_state{service="ecforce",name="ec-force"} 0
-
-# HELP browser_pool_size Current browser pool size by status
-# TYPE browser_pool_size gauge
-browser_pool_size{status="idle"} 3
-browser_pool_size{status="busy"} 2
-...
-```
-
-**Usage with Prometheus:**
-```yaml
+# HELP crawler_execution_duration_seconds Crawler execution duration
+# TYPE crawler_execution_duration_seconds histogram
+crawler_execution_duration_seconds_bucket{status="success",shop="example.com",le="10"} 25
 scrape_configs:
   - job_name: 'line-shop-runner'
     static_configs:
@@ -331,10 +316,7 @@ Configuration is managed through environment variables. See `.env.example` for a
 | `GCS_BUCKET_NAME` | Google Cloud Storage bucket name | - |
 | `GCS_KEY_FILE` | Path to GCS service account key | - |
 | `GCS_PROJECT_ID` | Google Cloud Project ID | - |
-
-## 🏗️ Architecture
-
-### Distributed System Features
+(comma-separated for multiple) | -
 
 #### Redis-Based Circuit Breaker
 - **Shared State**: All pods share circuit breaker state via Redis
@@ -347,18 +329,16 @@ Configuration is managed through environment variables. See `.env.example` for a
 - **Browser Pool**: Instance lifecycle, wait times, status distribution
 - **Circuit Breaker**: State changes, failure counts, open duration
 - **Crawler**: Execution time, error rates, step timing
-- **Business**: Orders created/failed by shop
-- **GCS**: Upload performance and success rates
+- **Production Features
 
-#### Horizontal Pod Autoscaling (HPA)
-- **CPU-Based Scaling**: 70% CPU threshold
-- **Pod Limits**: 2-10 pods
-- **Stabilization**: 60s scale-up, 300s scale-down
-- **Graceful Shutdown**: 120s termination period
+#### Retry Logic with Exponential Backoff
+- **Automatic Retries**: Failed operations retry up to 3 times
+- **Exponential Backoff**: Increasing delays between retries (2s, 4s, 8s)
+- **Timeout Protection**: Total operation timeout (5 minutes)
+- **Configurable**: Adjust retry attempts and delays
 
-## 📁 Project Structure
-
-```
+#### Prometheus Metrics
+- **HTTP Metrics**: Request duration, count, in-progress tracking
 line-shop-runner-service/
 ├── src/
 │   ├── app.js                          # Application entry point
@@ -393,7 +373,10 @@ line-shop-runner-service/
 └── README.md
 ```
 
-## 🏗️ Development
+## 🏗️ Develretry.js                    # Retry utility with exponential backoff
+│   │   ├── metrics.js                  # Prometheus metrics
+│   │   ├── screenshot.js               # Screenshot utilities with GCS upload
+│   │   ├── sanitizer.js                # Input sanitization
 
 ### Available Scripts
 
@@ -469,14 +452,15 @@ Old screenshots are automatically cleaned up after 7 days.
 - [ ] Configure proper CORS origins
 - [ ] Use HTTPS in production
 - [ ] Regular screenshot cleanup
-- [ ] Monitor browser instances
-
-### Docker Production Deployment
-
-```bash
-# Build production image
-docker build -t line-shop-runner-service:latest .
-
+- [ ] Configure multiple API keys (comma-separated)
+- [ ] Disable `CRAWLER_DEBUGGING` in production
+- [ ] Configure GCS for screenshot storage
+- [ ] Set up log rotation
+- [ ] Set up monitoring/alerts with Prometheus
+- [ ] Configure proper CORS origins
+- [ ] Use HTTPS in production
+- [ ] Regular screenshot cleanup
+- [ ] Monitor crawler execution time and error rat
 # Run with environment variables
 docker run -d \
   -p 4000:4000 \
@@ -584,25 +568,26 @@ spec:
 - Check for memory leaks in logs
 
 ## 📈 Monitoring
+ after each request
+- Check browser launch options in BaseCrawler
+- Increase container memory limits
+- Check for memory leaks in logs
+
+## 📈 Monitoring
 
 ### Health Check Endpoints
 
 - `/healthz` - Basic health check with system metrics
+- `/metrics` - Prometheus metrics endpoint
 
-### Metrics to Monitor
+### Key Metrics to Monitor
 
-- Response time
-- Success/failure rate
-- Browser instances
-- Memory usage
-- Error rate by type
-- Queue length (future)
-
-## 📱 LINE Messaging Integration
-
-The service supports automatic LINE notifications after successful order creation. LINE credentials are passed via `account` and `customer` parameters as JSON strings.
-
-### Account Parameters (JSON String)
+- `http_request_duration_seconds` - Response time per endpoint
+- `crawler_execution_duration_seconds` - Crawler performance
+- `crawler_errors_total` - Error rate by type
+- `orders_created_total` - Success rate
+- `orders_failed_total` - Failure rate
+- `gcs_uploads_total` - Screenshot upload status(JSON String)
 ```json
 {
   "id": 1,
@@ -664,17 +649,16 @@ Thank you for your purchase!
 - [ ] Webhook notifications
 - [ ] Multi-platform support (not just EC-Force)
 - [ ] Web dashboard for monitoring
+- [ ] Batch order processing for async processing
+- [ ] Browser Context Pool for session reuse (skip login)
+- [ ] Database for order history
+- [ ] Webhook notifications
+- [ ] Multi-platform support (beyond EC-Force)
+- [ ] Web dashboard for monitoring
 - [ ] Batch order processing
-- [ ] Caching layer
-- [ ] Prometheus metrics
 - [ ] OpenAPI/Swagger documentation
-- [ ] API authentication
-- [ ] Rate limiting
-
-## 📝 License
-
-MIT
-
+- [ ] Advanced rate limiting per API key
+- [ ] Redis caching for tokens/sessions
 ## 👥 Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.

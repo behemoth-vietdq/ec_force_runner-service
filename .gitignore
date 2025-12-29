@@ -9,7 +9,15 @@ yarn.lock
 .env
 .env.local
 .env.*.local
+
+# Secrets and credentials - NEVER commit these!
 secret/
+*.pem
+*.key
+*.p12
+*.pfx
+*-key.json
+credentials*.json
 
 # Logs
 logs/

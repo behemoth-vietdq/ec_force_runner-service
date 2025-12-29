@@ -128,11 +128,4 @@ logger.debug = (message, meta = {}) => {
   return originalDebug(combined);
 };
 
-// Create a stream for Morgan (deprecated, no longer used)
-logger.stream = {
-  write: (message) => {
-    logger.info(message.trim());
-  },
-};
-
 module.exports = logger;

@@ -6,11 +6,10 @@ const {
   saveScreenshot,
 } = require("../../utils/screenshot");
 const { CrawlerError, ErrorCodes } = require("../../middleware/errorHandler");
-const { getBrowserPool } = require("../../utils/browserPool");
 
 /**
- * Base Crawler class with common functionality.
- * Provides browser initialization, navigation, element interactions, and error handling.
+ * Base Crawler with common Puppeteer operations
+ * Provides browser initialization, navigation, element interactions, error handling
  */
 class BaseCrawler {
   constructor(options = {}) {
@@ -18,42 +17,18 @@ class BaseCrawler {
     this.page = null;
     this.options = { ...config.puppeteer, ...options };
     this.startTime = Date.now();
-    this.pooledBrowser = false;
   }
 
   /**
-   * Initialize browser instance with optional pooling.
-   * @throws {CrawlerError} If browser launch fails.
+   * Initialize browser instance
    */
   async initBrowser() {
     try {
       const headless = this.options.headless;
 
-      // Use pooling only when headless mode is enabled
-      // Pool should be pre-initialized in app.js on startup
-      const usePooling = headless && config.puppeteer.headless;
+      logger.info(`Initializing browser - headless: ${headless}`);
 
-      logger.info(
-        `Initializing browser - headless: ${headless}, pooling: ${usePooling}, timeout: ${this.options.timeout}`
-      );
-
-      if (usePooling) {
-        // Use browser pool for better performance (headless only)
-        const pool = getBrowserPool();
-        if (pool.initialized) {
-          this.browser = await pool.acquire();
-          this.pooledBrowser = true;
-          logger.debug('Using pooled browser instance');
-        } else {
-          logger.warn('Browser pool not initialized, launching new instance');
-          this.browser = await this._launchBrowser(headless);
-        }
-      } else {
-        // Launch new browser instance for non-headless mode
-        this.browser = await this._launchBrowser(headless);
-        logger.debug('Launched new browser instance');
-      }
-
+      this.browser = await this._launchBrowser(headless);
       this.page = await this.browser.newPage();
 
       if (this.options.userAgent) {
@@ -62,13 +37,12 @@ class BaseCrawler {
 
       this.page.setDefaultTimeout(this.options.timeout);
 
-      // Log console, errors, and failed requests if debug enabled
       if (config.crawler.debugging) {
         this.page.on("console", (msg) =>
           logger.debug(`Browser console [${msg.type()}]: ${msg.text()}`)
         );
       }
-      this.page.on("pageerror", (error) => logger.error("Page error:", error));
+      this.page.on("pageerror", (error) => logger.error("Page error", { error: error.message }));
 
       logger.info("Browser initialized successfully");
       return this.page;
@@ -84,8 +58,7 @@ class BaseCrawler {
   }
 
   /**
-   * Launch a new browser instance with appropriate configuration
-   * @private
+   * Launch browser with appropriate configuration
    */
   async _launchBrowser(headless) {
     return await puppeteer.launch({
@@ -119,35 +92,24 @@ class BaseCrawler {
   }
 
   /**
-   * Close browser instance safely with pool support.
+   * Close browser safely
    */
   async closeBrowser() {
     if (this.browser) {
       try {
-        if (this.pooledBrowser) {
-          // Return browser to pool instead of closing
-          const pool = getBrowserPool();
-          await pool.release(this.browser);
-          logger.info("Browser returned to pool");
-        } else {
-          // Close standalone browser
-          await this.browser.close();
-          logger.info("Browser closed successfully");
-        }
+        await this.browser.close();
+        logger.info("Browser closed successfully");
       } catch (error) {
         logger.error("Error closing browser:", error);
       } finally {
         this.browser = null;
         this.page = null;
-        this.pooledBrowser = false;
       }
     }
   }
 
   /**
-   * Navigate to a URL with wait options.
-   * @param {string} url - URL to navigate to.
-   * @throws {CrawlerError} If navigation fails.
+   * Navigate to URL
    */
   async navigateToUrl(url) {
     try {
@@ -169,11 +131,7 @@ class BaseCrawler {
   }
 
   /**
-   * Wait for an element to appear.
-   * @param {string} selector - CSS selector.
-   * @param {Object} options - Wait options.
-   * @returns {ElementHandle} The element.
-   * @throws {CrawlerError} If element not found.
+   * Wait for element to appear
    */
   async waitForElement(selector, options = {}) {
     const waitOptions = {
@@ -201,10 +159,7 @@ class BaseCrawler {
   }
 
   /**
-   * Click an element with retries and scroll into view.
-   * @param {string} selector - CSS selector.
-   * @param {Object} options - Options including maxRetries.
-   * @throws {CrawlerError} If click fails after retries.
+   * Click element with retries and scroll into view
    */
   async clickElement(selector, options = {}) {
     const maxRetries = options.maxRetries || config.crawler.maxRetries;
@@ -250,11 +205,7 @@ class BaseCrawler {
   }
 
   /**
-   * Fill an input field with value, with retries and verification.
-   * @param {string} selector - CSS selector.
-   * @param {string} value - Value to fill.
-   * @param {Object} options - Options.
-   * @throws {CrawlerError} If fill fails.
+   * Fill input with value and verification
    */
   async fillInput(selector, value, options = {}) {
     if (!value) return;
@@ -305,11 +256,7 @@ class BaseCrawler {
   }
 
   /**
-   * Select an option in dropdown.
-   * @param {string} selector - Select selector.
-   * @param {string} value - Option value.
-   * @param {Object} options - Options.
-   * @throws {CrawlerError} If select fails.
+   * Select dropdown option
    */
   async selectOption(selector, value, options = {}) {
     try {
@@ -331,9 +278,7 @@ class BaseCrawler {
   }
 
   /**
-   * Take a screenshot.
-   * @param {string|null} filename - Optional filename.
-   * @returns {string|null} Screenshot path or null.
+   * Take screenshot
    */
   async takeScreenshot(filename = null) {
     if (!this.page) {
@@ -349,9 +294,7 @@ class BaseCrawler {
   }
 
   /**
-   * Handle error with logging and screenshot.
-   * @param {Error} error - Error object.
-   * @param {string} context - Error context.
+   * Handle error with logging and screenshot
    */
   async handleError(error, context = "") {
     logger.error(
@@ -363,18 +306,14 @@ class BaseCrawler {
   }
 
   /**
-   * Sleep for ms.
-   * @param {number} ms - Milliseconds.
+   * Sleep for milliseconds
    */
   sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
-   * Check if element exists.
-   * @param {string} selector - Selector.
-   * @param {number} timeout - Timeout in ms.
-   * @returns {boolean}
+   * Check if element exists
    */
   async elementExists(selector, timeout = 3000) {
     try {
@@ -386,12 +325,7 @@ class BaseCrawler {
   }
 
   /**
-   * Retry a function.
-   * @param {Function} fn - Async function to retry.
-   * @param {number} maxAttempts - Max retries.
-   * @param {number} delayMs - Delay between retries.
-   * @returns {any} Result of fn.
-   * @throws {Error} If all retries fail.
+   * Retry function with configurable attempts and delay
    */
   async withRetry(
     fn,

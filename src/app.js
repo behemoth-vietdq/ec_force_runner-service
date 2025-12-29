@@ -9,7 +9,6 @@ const { requestContextMiddleware } = require('./utils/asyncContext');
 const requestLogger = require('./middleware/requestLogger');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 const { cleanupOldScreenshots } = require('./utils/screenshot');
-const { getBrowserPool } = require('./utils/browserPool');
 
 // Create Express app
 const app = express();
@@ -57,21 +56,6 @@ setInterval(() => {
 
 // Start server
 const startServer = async () => {
-  // Initialize browser pool only in headless mode
-  if (config.puppeteer.headless) {
-    try {
-      logger.info('Headless mode enabled - Initializing browser pool...');
-      const browserPool = getBrowserPool();
-      await browserPool.initialize();
-      logger.info('Browser pool initialized successfully');
-    } catch (error) {
-      logger.error('Failed to initialize browser pool:', error);
-      logger.warn('Service will start without browser pool');
-    }
-  } else {
-    logger.info('Non-headless mode enabled - Browser pool disabled');
-  }
-
   const server = app.listen(config.server.port, config.server.host, () => {
     logger.info('='.repeat(50));
     logger.info('🚀 Line Shop Runner Service started successfully');
@@ -99,20 +83,6 @@ const startServer = async () => {
     
     server.close(async () => {
       logger.info('HTTP server closed');
-      
-      // Shutdown browser pool (only if headless mode)
-      if (config.puppeteer.headless) {
-        try {
-          const browserPool = getBrowserPool();
-          if (browserPool.initialized) {
-            await browserPool.shutdown();
-            logger.info('Browser pool shut down successfully');
-          }
-        } catch (error) {
-          logger.error('Error shutting down browser pool:', error);
-        }
-      }
-      
       logger.info('Graceful shutdown completed');
       process.exit(0);
     });
@@ -130,15 +100,13 @@ const startServer = async () => {
 
   // Handle uncaught exceptions
   process.on('uncaughtException', (error) => {
-    console.error('Uncaught Exception:', error);
-    logger.error('Uncaught Exception:', error);
+    logger.error('Uncaught Exception:', { error: error.message, stack: error.stack });
     gracefulShutdown('uncaughtException');
   });
 
   // Handle unhandled promise rejections
   process.on('unhandledRejection', (reason, promise) => {
-    console.error('Unhandled Rejection at:', promise, 'reason:', reason);
-    logger.error('Unhandled Rejection at:', promise, 'reason:', reason);
+    logger.error('Unhandled Rejection:', { reason: String(reason), promise: String(promise) });
   });
 
   return server;

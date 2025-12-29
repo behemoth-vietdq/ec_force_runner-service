@@ -2,7 +2,7 @@ const BaseCrawler = require("./BaseCrawler");
 const logger = require("../../utils/logger");
 const { CrawlerError, ErrorCodes } = require("../../middleware/errorHandler");
 const { sanitizeUrl, sanitizeCustomerId } = require("../../utils/sanitizer");
-const { getCircuitBreaker } = require("../../utils/circuitBreaker");
+const { retryWithBackoff } = require("../../utils/retry");
 // Order notifications are handled at controller level to centralize failure handling
 
 // Centralize selectors and texts for easy maintenance
@@ -139,14 +139,16 @@ class EcForceOrderCrawler extends BaseCrawler {
       `Starting EC-Force order creation - formCustomerId: ${this.formData.customer_id}`
     );
 
-    const circuitBreaker = getCircuitBreaker("ecforce");
-
     try {
-      // Execute with circuit breaker protection
-      await circuitBreaker.execute(async () => {
+      // Execute with retry logic
+      await retryWithBackoff(async () => {
         await this.initBrowser();
         await this.page.setViewport({ width: 1920, height: 1080 });
         await this.run();
+      }, {
+        maxAttempts: 3,
+        initialDelay: 2000,
+        operationName: 'EC-Force order creation'
       });
 
       const executionTime = Date.now() - startTime;
@@ -161,31 +163,6 @@ class EcForceOrderCrawler extends BaseCrawler {
       };
     } catch (error) {
       const executionTime = Date.now() - startTime;
-
-      // Handle circuit breaker specific errors
-      if (error.code === "CIRCUIT_OPEN") {
-        logger.error(
-          `Circuit breaker open - service unavailable - executionTime: ${executionTime}ms`
-        );
-        throw new CrawlerError(
-          "EC-Force service temporarily unavailable due to repeated failures",
-          ErrorCodes.CRAWLER_CIRCUIT_OPEN,
-          503,
-          { lastError: error.lastError }
-        );
-      }
-
-      if (error.code === "CIRCUIT_TIMEOUT") {
-        logger.error(
-          `Circuit breaker timeout - executionTime: ${executionTime}ms`
-        );
-        throw new CrawlerError(
-          "EC-Force operation timeout",
-          ErrorCodes.CRAWLER_TIMEOUT,
-          504,
-          { timeout: error.message }
-        );
-      }
 
       logger.error(
         `Order creation failed - executionTime: ${executionTime}ms, error: ${error.message}`

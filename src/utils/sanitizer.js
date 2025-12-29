@@ -1,12 +1,9 @@
 /**
- * URL sanitization utility
- * Prevents injection attacks in URLs and query parameters
+ * URL sanitization to prevent injection attacks
  */
 
 /**
  * Sanitize URL to prevent injection
- * @param {string} url - URL to sanitize
- * @returns {string} Sanitized URL
  */
 function sanitizeUrl(url) {
   if (!url || typeof url !== 'string') {
@@ -35,8 +32,6 @@ function sanitizeUrl(url) {
 
 /**
  * Sanitize query parameter to prevent injection
- * @param {string} param - Parameter value to sanitize
- * @returns {string} Sanitized parameter
  */
 function sanitizeQueryParam(param) {
   if (!param) return '';
@@ -54,10 +49,7 @@ function sanitizeQueryParam(param) {
 }
 
 /**
- * Sanitize object with multiple fields
- * @param {Object} obj - Object to sanitize
- * @param {Array} fields - Fields to sanitize
- * @returns {Object} Sanitized object
+ * Sanitize object fields
  */
 function sanitizeObject(obj, fields) {
   const sanitized = { ...obj };
@@ -73,8 +65,6 @@ function sanitizeObject(obj, fields) {
 
 /**
  * Validate and sanitize customer ID
- * @param {string} customerId - Customer ID to validate
- * @returns {string} Sanitized customer ID
  */
 function sanitizeCustomerId(customerId) {
   if (!customerId) {

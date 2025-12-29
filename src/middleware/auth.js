@@ -3,17 +3,18 @@ const logger = require('../utils/logger');
 
 /**
  * API Key authentication middleware
- * Checks for API key in X-API-Key header or api_key query parameter
+ * Validates X-API-Key header or api_key query parameter against configured keys
  */
 const authMiddleware = (req, res, next) => {
-  // Skip auth in development if API_KEY not set
-  if (config.server.env === 'development' && !config.server.apiKey) {
-    logger.warn('API authentication disabled - no API_KEY configured');
+  const validKeys = config.apiKeys.admin;
+
+  if (config.server.env === 'development' && validKeys.length === 0) {
+    logger.warn('API authentication disabled - no API keys configured');
     return next();
   }
 
-  if (!config.server.apiKey) {
-    logger.error('API_KEY not configured in production environment');
+  if (validKeys.length === 0) {
+    logger.error('API keys not configured');
     return res.status(500).json({
       success: false,
       error: {
@@ -23,7 +24,6 @@ const authMiddleware = (req, res, next) => {
     });
   }
 
-  // Get API key from header or query parameter
   const apiKey = req.headers['x-api-key'] || req.query.api_key;
 
   if (!apiKey) {
@@ -37,7 +37,7 @@ const authMiddleware = (req, res, next) => {
     });
   }
 
-  if (apiKey !== config.server.apiKey) {
+  if (!validKeys.includes(apiKey)) {
     logger.warn(`Authentication failed - invalid API key - IP: ${req.ip}`);
     return res.status(401).json({
       success: false,
@@ -48,7 +48,6 @@ const authMiddleware = (req, res, next) => {
     });
   }
 
-  // Authentication successful
   logger.debug('API authentication successful');
   next();
 };

@@ -1,8 +1,6 @@
 const logger = require('../utils/logger');
 const config = require('../config');
 const puppeteer = require('puppeteer');
-const { getAllStatuses } = require('../utils/circuitBreaker');
-const { getBrowserPool } = require('../utils/browserPool');
 
 /**
  * Health check controller with comprehensive checks
@@ -73,29 +71,6 @@ class HealthController {
       }
     } else {
       checks.checks.gcs = { status: 'not_configured', message: 'GCS not configured' };
-    }
-
-    // Circuit breaker status
-    checks.checks.circuitBreakers = getAllStatuses();
-
-    // Browser pool status
-    try {
-      const browserPool = getBrowserPool();
-      const poolHealth = await browserPool.healthCheck();
-      checks.checks.browserPool = {
-        status: poolHealth.healthy ? 'ok' : 'degraded',
-        stats: poolHealth.stats,
-        issues: poolHealth.issues
-      };
-      
-      if (!poolHealth.healthy) {
-        checks.status = 'degraded';
-      }
-    } catch (error) {
-      checks.checks.browserPool = {
-        status: 'not_initialized',
-        message: 'Browser pool not initialized'
-      };
     }
 
     const statusCode = checks.status === 'healthy' ? 200 : 503;

@@ -2,13 +2,13 @@ const path = require("path");
 const fs = require("fs");
 const config = require("../config");
 const logger = require("./logger");
-const { getCircuitBreaker } = require("./circuitBreaker");
+const { retryWithBackoff } = require("./retry");
 
 // Google Cloud Storage client (lazy init)
 let storageClient = null;
 
 /**
- * Initialize GCS client if credentials are available
+ * Initialize GCS client if credentials available
  */
 function initGCSClient() {
   if (storageClient) return storageClient;
@@ -33,20 +33,15 @@ function initGCSClient() {
 }
 
 /**
- * Upload file to Google Cloud Storage with signed URL and circuit breaker protection
- * @param {string} localPath - Local file path
- * @param {string} filename - Destination filename in GCS
- * @returns {Promise<string|null>} Signed URL or null
+ * Upload file to GCS with signed URL and retry protection
  */
 async function uploadToGCS(localPath, filename) {
   const storage = initGCSClient();
   if (!storage) return null;
 
-  const circuitBreaker = getCircuitBreaker('gcs');
-
   try {
-    // Execute upload with circuit breaker protection
-    return await circuitBreaker.execute(async () => {
+    // Execute upload with retry logic
+    return await retryWithBackoff(async () => {
       const bucket = storage.bucket(config.gcs.bucketName);
       const blob = bucket.file(`${filename}`);
 
@@ -67,22 +62,19 @@ async function uploadToGCS(localPath, filename) {
       logger.info(`Screenshot uploaded to GCS with signed URL (expires in ${Math.floor((config.gcs.signedUrlExpiry || 3600000) / 60000)} minutes)`);
 
       return signedUrl;
+    }, {
+      maxAttempts: 2,
+      initialDelay: 1000,
+      operationName: 'GCS upload'
     });
   } catch (error) {
-    // Handle circuit breaker errors
-    if (error.code === 'CIRCUIT_OPEN') {
-      logger.warn('GCS circuit breaker is OPEN, upload skipped');
-      return null;
-    }
-    
     logger.error("Failed to upload to GCS:", error);
     return null;
   }
 }
 
 /**
- * Generate a unique filename for screenshot
- * @returns {string} filename with timestamp
+ * Generate unique filename with timestamp
  */
 function generateFilename() {
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
@@ -93,25 +85,24 @@ function generateFilename() {
  * Ensure screenshot directory exists
  */
 function ensureDirectoryExists() {
-  if (!fs.existsSync(config.screenshots.path)) {
-    fs.mkdirSync(config.screenshots.path, { recursive: true });
-    logger.info(`Created screenshots directory: ${config.screenshots.path}`);
+  const screenshotsDir = config.crawler.screenshotsDir || 'screenshots';
+  if (!fs.existsSync(screenshotsDir)) {
+    fs.mkdirSync(screenshotsDir, { recursive: true });
+    logger.info(`Created screenshots directory: ${screenshotsDir}`);
   }
+  return screenshotsDir;
 }
 
 /**
  * Save screenshot from Puppeteer page
- * @param {Page} page - Puppeteer page object
- * @param {string} filename - Optional custom filename
- * @returns {Promise<string>} Path to saved screenshot
  */
 async function saveScreenshot(page, filename = null) {
   try {
-    ensureDirectoryExists();
+    const screenshotsDir = ensureDirectoryExists();
 
     const screenshotFilename = filename || generateFilename();
     const screenshotPath = path.join(
-      config.screenshots.path,
+      screenshotsDir,
       screenshotFilename
     );
 
@@ -129,14 +120,10 @@ async function saveScreenshot(page, filename = null) {
 }
 
 /**
- * Save screenshot on error with context and upload to GCS
- * @param {Page} page - Puppeteer page object
- * @param {Error} error - Error object
- * @param {string} context - Context description
- * @returns {Promise<Object|null>} Screenshot info with local path and GCS URL
+ * Save error screenshot with context and upload to GCS
  */
 async function saveErrorScreenshot(page, error, context = "") {
-  if (!config.screenshots.enabled) {
+  if (!config.crawler.screenshotsEnabled) {
     return null;
   }
 
@@ -173,22 +160,22 @@ async function saveErrorScreenshot(page, error, context = "") {
 }
 
 /**
- * Clean up old screenshots
- * @param {number} daysOld - Delete screenshots older than this many days
+ * Clean up old screenshots (default: 7 days)
  */
 function cleanupOldScreenshots(daysOld = 7) {
   try {
-    if (!fs.existsSync(config.screenshots.path)) {
+    const screenshotsDir = config.crawler.screenshotsDir || 'screenshots';
+    if (!fs.existsSync(screenshotsDir)) {
       return;
     }
 
-    const files = fs.readdirSync(config.screenshots.path);
+    const files = fs.readdirSync(screenshotsDir);
     const now = Date.now();
     const maxAge = daysOld * 24 * 60 * 60 * 1000;
     let deletedCount = 0;
 
     files.forEach((file) => {
-      const filePath = path.join(config.screenshots.path, file);
+      const filePath = path.join(screenshotsDir, file);
       const stats = fs.statSync(filePath);
 
       if (now - stats.mtimeMs > maxAge) {
