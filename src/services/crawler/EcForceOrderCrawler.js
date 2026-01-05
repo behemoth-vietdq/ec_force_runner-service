@@ -225,14 +225,31 @@ class EcForceOrderCrawler extends BaseCrawler {
       window.scrollTo(0, document.body.scrollHeight)
     );
 
-    // Submit order form
+    await this._submitOrderForm();
+    await this._verifySubmission();
+    await this._confirmOrder();
+    await this._waitForOrderCompletion();
+
+    logger.info("Order confirmed successfully");
+  }
+
+  /**
+   * Submit the order form
+   * @private
+   */
+  async _submitOrderForm() {
     await this.clickElement(EC_FORCE_SELECTORS.orderForm.submit);
     await this.page.waitForNavigation({
       waitUntil: "load",
       timeout: this.options.timeout,
     });
+  }
 
-    // Check for errors
+  /**
+   * Verify order submission was successful
+   * @private
+   */
+  async _verifySubmission() {
     const hasError = await this.elementExists(
       EC_FORCE_SELECTORS.orderForm.errorAlert,
       2000
@@ -253,7 +270,6 @@ class EcForceOrderCrawler extends BaseCrawler {
       );
     }
 
-    // Verify confirmation page loaded
     const hasConfirm = await this.page.evaluate(
       (text) => document.body.textContent.includes(text),
       EC_FORCE_TEXTS.confirmButton
@@ -269,13 +285,121 @@ class EcForceOrderCrawler extends BaseCrawler {
     }
 
     logger.info("Order submitted successfully - now confirming");
+  }
 
-    // Confirm order on confirmation page
+  /**
+   * Confirm order on confirmation page
+   * @private
+   */
+  async _confirmOrder() {
     await this.page.evaluate(() =>
       window.scrollTo(0, document.body.scrollHeight)
     );
 
-    // Try to find and click confirm button using resilient puppeteer APIs
+    const clicked = await this._clickConfirmButton();
+    if (!clicked) {
+      await this.takeScreenshot("confirm_failed.png").catch(() => {});
+      throw new CrawlerError(
+        "Could not confirm order - confirm button interaction failed",
+        ErrorCodes.ORDER_SUBMISSION_FAILED,
+        500
+      );
+    }
+  }
+
+  /**
+   * Try to click the confirm button using multiple strategies
+   * @private
+   */
+  async _clickConfirmButton() {
+    const maxAttempts = 3;
+    
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        // Try to find and click button with text matching
+        const clicked = await this._tryConfirmButtonClick();
+        if (clicked) {
+          await this._waitForClickResponse();
+          return true;
+        }
+      } catch (err) {
+        logger.warn(
+          `Click attempt ${attempt} failed for confirm button: ${err.message}`
+        );
+        if (attempt < maxAttempts) {
+          await this.sleep(500);
+        }
+      }
+    }
+    
+    return false;
+  }
+
+  /**
+   * Try various strategies to click the confirm button
+   * @private
+   */
+  async _tryConfirmButtonClick() {
+    // Strategy 1: Find by exact text match
+    const selector = await this._findConfirmButtonSelector();
+    if (selector && await this._clickBySelector(selector)) {
+      return true;
+    }
+
+    // Strategy 2: Try predefined selectors
+    if (await this._clickByPredefinedSelectors()) {
+      return true;
+    }
+
+    // Strategy 3: JavaScript click as fallback
+    return await this._clickConfirmByEval();
+  }
+
+  /**
+   * Find confirm button selector by text
+   * @private
+   */
+  async _findConfirmButtonSelector() {
+    return await this.page.evaluate((confirmText) => {
+      const all = Array.from(
+        document.querySelectorAll('button, input[type="submit"]')
+      );
+      const node = all.find((n) =>
+        (n.textContent || n.value || "").includes(confirmText)
+      );
+      if (!node) return null;
+      if (node.id) return `#${node.id}`;
+      if (node.name) return `button[name="${node.name}"]`;
+      return null;
+    }, EC_FORCE_TEXTS.confirmButton);
+  }
+
+  /**
+   * Click element by selector
+   * @private
+   */
+  async _clickBySelector(selector) {
+    try {
+      await this.page.waitForSelector(selector, {
+        visible: true,
+        timeout: 3000,
+      });
+      const el = await this.page.$(selector);
+      if (el) {
+        await el.click({ delay: 50 });
+        return true;
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  }
+
+  /**
+   * Try clicking using predefined selectors
+   * @private
+   */
+  async _clickByPredefinedSelectors() {
     const confirmSelectors = [
       `button:contains("${EC_FORCE_TEXTS.confirmButton}")`,
       `input[type="submit"][value*="${EC_FORCE_TEXTS.confirmButton}"]`,
@@ -283,118 +407,61 @@ class EcForceOrderCrawler extends BaseCrawler {
       'input[type="submit"]',
     ];
 
-    let clicked = false;
-    const maxAttempts = 3;
-    for (let attempt = 1; attempt <= maxAttempts && !clicked; attempt++) {
-      try {
-        // Prefer explicit text-matching selector first via evaluate to get exact node path
-        const found = await this.page.evaluate((confirmText) => {
-          const all = Array.from(
-            document.querySelectorAll('button, input[type="submit"]')
-          );
-          const node = all.find((n) =>
-            (n.textContent || n.value || "").includes(confirmText)
-          );
-          if (!node) return null;
-          // build a selector fallback using data attributes if available
-          if (node.id) return `#${node.id}`;
-          if (node.name) return `button[name="${node.name}"]`;
-          return null;
-        }, EC_FORCE_TEXTS.confirmButton);
-
-        // Try to click using found selector path first
-        if (found) {
-          try {
-            await this.page.waitForSelector(found, {
-              visible: true,
-              timeout: 3000,
-            });
-            const el = await this.page.$(found);
-            if (el) {
-              await el.click({ delay: 50 });
-              clicked = true;
-              break;
-            }
-          } catch (err) {
-            // ignore and fall through to other selectors
-          }
-        }
-
-        // Otherwise try the prioritized selectors list via waitForSelector
-        for (const sel of confirmSelectors) {
-          try {
-            await this.page.waitForSelector(sel, {
-              visible: true,
-              timeout: 2000,
-            });
-            const el = await this.page.$(sel);
-            if (el) {
-              await el.click({ delay: 50 });
-              clicked = true;
-              break;
-            }
-          } catch (err) {
-            // continue to next selector
-          }
-        }
-
-        // If still not clicked, attempt to click by evaluating (last resort)
-        if (!clicked) {
-          const evalClicked = await this.page.evaluate((text) => {
-            const buttons = Array.from(
-              document.querySelectorAll('button, input[type="submit"]')
-            );
-            const btn = buttons.find((b) =>
-              (b.textContent || b.value || "").includes(text)
-            );
-            if (btn) {
-              btn.click();
-              return true;
-            }
-            return false;
-          }, EC_FORCE_TEXTS.confirmButton);
-
-          if (evalClicked) clicked = true;
-        }
-
-        // After a click attempt, wait briefly for navigation or stable network
-        if (clicked) {
-          try {
-            await Promise.race([
-              this.page.waitForNavigation({
-                waitUntil: "networkidle0",
-                timeout: 5000,
-              }),
-              this.sleep(1500),
-            ]);
-          } catch (err) {
-            // navigation may not happen immediately; ignore here
-          }
-        }
-      } catch (err) {
-        // If frame was detached or session closed, log and retry
-        logger.warn(
-          `Click attempt ${attempt} failed for confirm button: ${err.message}`
-        );
-        if (attempt === maxAttempts) {
-          await this.takeScreenshot("confirm_failed.png").catch(() => {});
-          throw new CrawlerError(
-            "Could not confirm order - confirm button interaction failed",
-            ErrorCodes.ORDER_SUBMISSION_FAILED,
-            500
-          );
-        }
-        // small backoff before retry
-        await this.sleep(500);
+    for (const sel of confirmSelectors) {
+      if (await this._clickBySelector(sel)) {
+        return true;
       }
     }
+    return false;
+  }
 
+  /**
+   * Click confirm button using JavaScript evaluation
+   * @private
+   */
+  async _clickConfirmByEval() {
+    return await this.page.evaluate((text) => {
+      const buttons = Array.from(
+        document.querySelectorAll('button, input[type="submit"]')
+      );
+      const btn = buttons.find((b) =>
+        (b.textContent || b.value || "").includes(text)
+      );
+      if (btn) {
+        btn.click();
+        return true;
+      }
+      return false;
+    }, EC_FORCE_TEXTS.confirmButton);
+  }
+
+  /**
+   * Wait for response after clicking
+   * @private
+   */
+  async _waitForClickResponse() {
+    try {
+      await Promise.race([
+        this.page.waitForNavigation({
+          waitUntil: "networkidle0",
+          timeout: 5000,
+        }),
+        this.sleep(1500),
+      ]);
+    } catch {
+      // Navigation may not happen immediately; ignore
+    }
+  }
+
+  /**
+   * Wait for order completion
+   * @private
+   */
+  async _waitForOrderCompletion() {
     await this.page.waitForNavigation({
       waitUntil: "networkidle0",
       timeout: this.options.timeout,
     });
-
-    logger.info("Order confirmed successfully");
   }
   async login() {
     const maskedEmail = this.credentials.admin_email.replace(
@@ -480,29 +547,16 @@ class EcForceOrderCrawler extends BaseCrawler {
    * Fill order form with all required information.
    */
   async fillOrderForm() {
+    const { product, shipping_address_id, payment_method_id, billing_address } = this.formData;
+    
     logger.info(
-      `Step 3: Filling order form - product: ${
-        this.formData.product.name
-      }, shippingAddressId: ${
-        this.formData.shipping_address_id
-      }, hasPaymentMethod: ${!!this.formData
-        .payment_method_id}, hasBillingAddress: ${!!this.formData
-        .billing_address}`
+      `Step 3: Filling order form - product: ${product.name}, shippingAddressId: ${shipping_address_id}, hasPaymentMethod: ${!!payment_method_id}, hasBillingAddress: ${!!billing_address}`
     );
 
-    // Add product to cart
     await this.addProductToOrder();
-
-    // Select shipping address
     await this.selectShippingAddress();
 
-    // Fill billing address if provided
-    // if (this.formData.billing_address) {
-    //   await this.fillBillingAddress();
-    // }
-
-    // Select payment method if provided
-    if (this.formData.payment_method_id) {
+    if (payment_method_id) {
       await this.selectPaymentMethod();
     }
 
@@ -516,7 +570,20 @@ class EcForceOrderCrawler extends BaseCrawler {
     const productName = this.formData.product.name;
     logger.info(`Adding product to order - productName: ${productName}`);
 
-    // Find and validate add item button
+    await this._openAddItemModal();
+    await this._fillProductInput(productName);
+    await this._waitForVariantTable();
+    await this._clickAddButton();
+
+    await this.sleep(1000);
+    logger.info("Product added successfully");
+  }
+
+  /**
+   * Open add item modal
+   * @private
+   */
+  async _openAddItemModal() {
     const btn = await this.page.$(EC_FORCE_SELECTORS.orderForm.addItem);
     if (!btn) {
       throw new CrawlerError(
@@ -526,10 +593,8 @@ class EcForceOrderCrawler extends BaseCrawler {
       );
     }
 
-    // Check button is clickable
-    const isVisible = await btn.isIntersectingViewport();
-    const isEnabled = await this.page.evaluate((el) => !el.disabled, btn);
-    if (!isVisible || !isEnabled) {
+    const isClickable = await this._isButtonClickable(btn);
+    if (!isClickable) {
       await this.takeScreenshot("add_button_not_clickable.png");
       throw new CrawlerError(
         "Add item button not clickable",
@@ -538,17 +603,30 @@ class EcForceOrderCrawler extends BaseCrawler {
       );
     }
 
-    // Click to open modal
     await btn.click();
     logger.debug("Add item button clicked");
 
-    // Wait for modal to appear
     await this.page.waitForSelector(EC_FORCE_SELECTORS.orderForm.modal, {
       visible: true,
       timeout: 5000,
     });
+  }
 
-    // Find and fill product input
+  /**
+   * Check if button is clickable
+   * @private
+   */
+  async _isButtonClickable(button) {
+    const isVisible = await button.isIntersectingViewport();
+    const isEnabled = await this.page.evaluate((el) => !el.disabled, button);
+    return isVisible && isEnabled;
+  }
+
+  /**
+   * Fill product input field
+   * @private
+   */
+  async _fillProductInput(productName) {
     const productInput = await this.page.waitForSelector(
       EC_FORCE_SELECTORS.orderForm.productInput,
       { visible: true, timeout: 5000 }
@@ -558,8 +636,13 @@ class EcForceOrderCrawler extends BaseCrawler {
     await productInput.type(productName, { delay: 100 });
     await productInput.press("Tab");
     logger.debug("Product name entered");
+  }
 
-    // Wait for variant table to load
+  /**
+   * Wait for variant table to load
+   * @private
+   */
+  async _waitForVariantTable() {
     await this.page.waitForFunction(
       (selector) => {
         const table = document.querySelector(selector);
@@ -569,8 +652,13 @@ class EcForceOrderCrawler extends BaseCrawler {
       EC_FORCE_SELECTORS.orderForm.variantTable
     );
     logger.debug("Variant table loaded");
+  }
 
-    // Click add button in modal
+  /**
+   * Click add button in modal
+   * @private
+   */
+  async _clickAddButton() {
     await this.page.evaluate((texts) => {
       const buttons = Array.from(
         document.querySelectorAll('button, input[type="submit"]')
@@ -585,10 +673,6 @@ class EcForceOrderCrawler extends BaseCrawler {
       }
       addBtn.click();
     }, EC_FORCE_TEXTS);
-
-    // Wait for modal to close
-    await this.sleep(1000);
-    logger.info("Product added successfully");
   }
 
   /**

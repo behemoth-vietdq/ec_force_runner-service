@@ -15,60 +15,32 @@ class OrderController {
    * Body: { account, customer, form_data }
    */
   static async createOrder(req, res, next) {
-    const {
-      account: rawAccount,
-      customer: rawCustomer,
-      form_data: rawFormData,
-    } = req.body || {};
+    const { account, customer, form_data } = req.body || {};
     const requestId = req.id;
+    
     logger.info("Order creation request received", { requestId });
 
     let crawler = null;
     let parsedAccount;
     let parsedCustomer;
-    const formData = rawFormData;
 
     try {
-      // Parse JSON strings if needed (validation already done by middleware)
-      parsedAccount = OrderController._parseJSON(rawAccount, "account");
-      parsedCustomer = OrderController._parseJSON(rawCustomer, "customer");
+      // Parse and validate input data
+      parsedAccount = OrderController._parseJSON(account, "account");
+      parsedCustomer = OrderController._parseJSON(customer, "customer");
 
-      // Create crawler instance
+      // Execute order creation
       crawler = new EcForceOrderCrawler({
         account: parsedAccount,
         customer: parsedCustomer,
-        formData,
+        formData: form_data,
       });
 
-      // Execute crawler (await the async execution so controller can catch rejections)
       const result = await crawler.execute();
 
-      logger.info("Order created successfully", {
-        requestId,
-        orderId: result.data?.order_id,
-        orderNumber: result.data?.order_number,
-        executionTime: result.executionTime,
-      });
+      OrderController._logOrderSuccess(requestId, result);
+      OrderController._handlePostOrderTasks(parsedAccount, parsedCustomer, form_data, result);
 
-      // Fetch EC-Force order detail and log structured params (non-blocking)
-      OrderLoggerService.logOrderParams(
-        parsedAccount,
-        parsedCustomer,
-        result.data?.order_id
-      ).catch((err) =>
-        logger.error(`Failed to log EC-Force order params: ${getErrorMessage(err)}`)
-      );
-
-      // Send success notification (non-blocking)
-      OrderNotificationService.sendOrderSuccessNotification(
-        result.data,
-        parsedAccount,
-        parsedCustomer
-      ).catch((err) =>
-        logger.error(`Failed to send success notification: ${getErrorMessage(err)}`)
-      );
-
-      // Return success response
       res.json({
         success: true,
         data: result.data,
@@ -79,33 +51,82 @@ class OrderController {
       });
     } catch (error) {
       logger.error(`Order creation failed: ${getErrorMessage(error)}`);
-
-      // Send failure notification (non-blocking)
-      if (parsedAccount && parsedCustomer) {
-        OrderNotificationService.sendOrderFailureNotification(
-          parsedAccount,
-          parsedCustomer,
-          {
-            product: formData?.product,
-            shopUrl: parsedAccount.options?.ec_force_info?.shop_url,
-          }
-        ).catch((notifyErr) =>
-          logger.error(`Failed to send failure notification: ${notifyErr?.message || String(notifyErr)}`)
-        );
-      }
-
+      OrderController._handleOrderFailure(parsedAccount, parsedCustomer, form_data, error);
       next(error);
     } finally {
-      // Ensure browser is closed
-      if (crawler) {
-        try {
-          await crawler.closeBrowser();
-        } catch (cleanupError) {
-          logger.error("Failed to cleanup crawler", {
-            requestId,
-            error: cleanupError?.message || String(cleanupError),
-          });
+      await OrderController._cleanupCrawler(crawler, requestId);
+    }
+  }
+
+  /**
+   * Log successful order creation
+   * @private
+   */
+  static _logOrderSuccess(requestId, result) {
+    logger.info("Order created successfully", {
+      requestId,
+      orderId: result.data?.order_id,
+      orderNumber: result.data?.order_number,
+      executionTime: result.executionTime,
+    });
+  }
+
+  /**
+   * Handle post-order tasks (logging and notifications)
+   * @private
+   */
+  static _handlePostOrderTasks(account, customer, formData, result) {
+    // Log order parameters (non-blocking)
+    OrderLoggerService.logOrderParams(
+      account,
+      customer,
+      result.data?.order_id
+    ).catch((err) =>
+      logger.error(`Failed to log EC-Force order params: ${getErrorMessage(err)}`)
+    );
+
+    // Send success notification (non-blocking)
+    OrderNotificationService.sendOrderSuccessNotification(
+      result.data,
+      account,
+      customer
+    ).catch((err) =>
+      logger.error(`Failed to send success notification: ${getErrorMessage(err)}`)
+    );
+  }
+
+  /**
+   * Handle order creation failure
+   * @private
+   */
+  static _handleOrderFailure(account, customer, formData, error) {
+    if (account && customer) {
+      OrderNotificationService.sendOrderFailureNotification(
+        account,
+        customer,
+        {
+          product: formData?.product,
+          shopUrl: account.options?.ec_force_info?.shop_url,
         }
+      ).catch((notifyErr) =>
+        logger.error(`Failed to send failure notification: ${notifyErr?.message || String(notifyErr)}`)
+      );
+    }
+  }
+
+  /**
+   * Clean up crawler resources
+   * @private
+   */
+  static async _cleanupCrawler(crawler, requestId) {
+    if (crawler) {
+      try {
+        await crawler.closeBrowser();
+      } catch (cleanupError) {
+        logger.error("Failed to cleanup crawler", {
+          requestId,
+          error: cleanupError?.message || String(cleanupError),
+        });
       }
     }
   }

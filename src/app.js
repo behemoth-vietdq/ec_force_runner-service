@@ -47,67 +47,88 @@ app.use(notFoundHandler);
 // Error handler (must be last)
 app.use(errorHandler);
 
-// Cleanup old screenshots on startup
-cleanupOldScreenshots(7);
+// Screenshot cleanup configuration
+const SCREENSHOT_RETENTION_DAYS = 7;
+const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
-// Schedule periodic cleanup (every 24 hours)
-// Use unref() so this doesn't prevent process from exiting
+// Cleanup old screenshots on startup
+cleanupOldScreenshots(SCREENSHOT_RETENTION_DAYS);
+
+// Schedule periodic cleanup
 const screenshotCleanupInterval = setInterval(() => {
-  cleanupOldScreenshots(7);
-}, 24 * 60 * 60 * 1000);
+  cleanupOldScreenshots(SCREENSHOT_RETENTION_DAYS);
+}, CLEANUP_INTERVAL_MS);
 screenshotCleanupInterval.unref();
 
-// Start server
-const startServer = async () => {
-  const server = app.listen(config.server.port, config.server.host, () => {
-    logger.info('='.repeat(50));
-    logger.info('🚀 Line Shop Runner Service started successfully');
-    logger.info('='.repeat(50));
-    logger.info(`Environment: ${config.server.env}`);
-    logger.info(`Server: http://${config.server.host}:${config.server.port}`);
-    logger.info(`Health Check: http://${config.server.host}:${config.server.port}/healthz`);
-    logger.info(`API Endpoint: http://${config.server.host}:${config.server.port}/api`);
-    logger.info(`Headless Mode: ${config.puppeteer.headless}`);
-    logger.info(`Log Level: ${config.logging.level}`);
-    logger.info('='.repeat(50));
-  });
-
-  // Set server socket/request timeout to configured value (ms)
-  try {
-    server.setTimeout(config.server.requestTimeout);
-    logger.info(`HTTP server socket timeout set to ${config.server.requestTimeout}ms`);
-  } catch (err) {
-    logger.warn('Unable to set server socket timeout', { error: err.message });
-  }
-
-  // Graceful shutdown
-  const gracefulShutdown = async (signal) => {
+/**
+ * Create graceful shutdown handler
+ */
+function createShutdownHandler(server, cleanupInterval) {
+  return async (signal) => {
     logger.info(`${signal} received. Starting graceful shutdown...`);
     
     // Clear screenshot cleanup interval
-    if (screenshotCleanupInterval) {
-      clearInterval(screenshotCleanupInterval);
+    if (cleanupInterval) {
+      clearInterval(cleanupInterval);
       logger.info('Screenshot cleanup interval cleared');
     }
     
     // Stop accepting new connections
     server.close(() => {
       logger.info('HTTP server closed - no longer accepting new connections');
-      
-      // Give active requests time to complete
       logger.info('Waiting for active requests to complete...');
-      
-      // Exit gracefully after server closes all connections
       logger.info('Graceful shutdown completed');
       process.exit(0);
     });
 
-    // Force shutdown after configured timeout (default 5 minutes)
+    // Force shutdown after timeout
     setTimeout(() => {
       logger.error(`Forced shutdown after ${config.server.shutdownTimeout}ms timeout`);
       process.exit(1);
-    }, config.server.shutdownTimeout).unref(); // unref so it doesn't prevent exit
+    }, config.server.shutdownTimeout).unref();
   };
+}
+
+/**
+ * Set server socket timeout
+ */
+function setServerTimeout(server) {
+  try {
+    server.setTimeout(config.server.requestTimeout);
+    logger.info(`HTTP server socket timeout set to ${config.server.requestTimeout}ms`);
+  } catch (err) {
+    logger.warn('Unable to set server socket timeout', { error: err.message });
+  }
+}
+
+/**
+ * Log server startup information
+ */
+function logServerStartup() {
+  const separator = '='.repeat(50);
+  logger.info(separator);
+  logger.info('🚀 Line Shop Runner Service started successfully');
+  logger.info(separator);
+  logger.info(`Environment: ${config.server.env}`);
+  logger.info(`Server: http://${config.server.host}:${config.server.port}`);
+  logger.info(`Health Check: http://${config.server.host}:${config.server.port}/healthz`);
+  logger.info(`API Endpoint: http://${config.server.host}:${config.server.port}/api`);
+  logger.info(`Headless Mode: ${config.puppeteer.headless}`);
+  logger.info(`Log Level: ${config.logging.level}`);
+  logger.info(separator);
+}
+
+/**
+ * Start server
+ */
+const startServer = async () => {
+  const server = app.listen(config.server.port, config.server.host, logServerStartup);
+
+  // Set server socket timeout
+  setServerTimeout(server);
+
+  // Graceful shutdown handler
+  const gracefulShutdown = createShutdownHandler(server, screenshotCleanupInterval);
 
   // Handle shutdown signals
   process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
