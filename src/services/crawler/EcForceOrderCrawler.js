@@ -66,8 +66,6 @@ class EcForceOrderCrawler extends BaseCrawler {
     this.shopUrl = ecForceInfo.shop_url;
     this.orderResult = null;
 
-    const maskedUrl = this.shopUrl?.replace(/:\/\/[^@]+@/, "://**:**@");
-    logger.info(`EcForceOrderCrawler initialized - shopUrl: ${maskedUrl}`);
   }
 
   /**
