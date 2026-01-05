@@ -1,22 +1,26 @@
 const logger = require('../../utils/logger');
 const GetOrderService = require('../ecforce/GetOrderService');
 
-function safeString(v) {
-  if (v === undefined || v === null) return '';
-  return String(v);
+/**
+ * Helper functions for data formatting
+ */
+function safeString(value) {
+  return (value === undefined || value === null) ? '' : String(value);
 }
 
 function jsonOrNull(value) {
   try {
     if (value == null) return null;
-    // For arrays, return null if empty to match previous behavior
     if (Array.isArray(value) && value.length === 0) return null;
     return JSON.stringify(value);
-  } catch (e) {
+  } catch {
     return null;
   }
 }
 
+/**
+ * Build structured log object for order
+ */
 function buildLog({
   kind = 'order_created',
   accountId = '',
@@ -66,56 +70,89 @@ async function logOrderParams(account, customer, orderId) {
     const ecOrder = context.result;
     if (!ecOrder) return null;
 
-    // Extract body from the response structure { body, code, headers }
-    const orderData = ecOrder.body || ecOrder;
-    const included = Array.isArray(orderData.included) ? orderData.included : [];
+    const { orderData, included } = extractOrderData(ecOrder);
+    const { customerObj, orderItems, subsOrder, orderAttrs } = parseOrderIncludes(orderData, included);
 
-    const customerObj = included.find((i) => i.type === 'customer') || null;
-    const orderItemIds = (orderData?.data?.relationships?.order_items?.data || []).map((i) => i.id);
-    const orderItems = included.filter((i) => i.type === 'order_item' && orderItemIds.includes(i.id));
-    const subsOrder = included.find((i) => i.type === 'sub_order') || null;
-    const orderAttrs = (orderData?.data && orderData.data.attributes) ? orderData.data.attributes : {};
-
-    const mainLog = buildLog({
-      kind: 'order_created',
-      accountId: account.id,
-      customerId: customer?.id || customerObj?.id,
-      resource: orderAttrs,
-      data: orderData,
-      customer: customerObj,
-      orderItems,
-    });
-
-    logger.info(mainLog);
-
-    // Log subs order if present
-    if (orderAttrs.subs_order_id || subsOrder) {
-      const subsOrderAttrs = subsOrder?.attributes || {};
-      const subsOrderItemIds = (subsOrder?.relationships?.order_items?.data || []).map((i) => i.id);
-      const subsOrderItems = included.filter((i) => i.type === 'order_item' && subsOrderItemIds.includes(i.id));
-      const initOrderId = (subsOrder?.relationships?.orders?.data || []).map((i) => i.id)[0] || '';
-
-      const subLog = buildLog({
-        kind: 'subs_order_created',
-        accountId: account.id,
-        customerId: customer?.id || customerObj?.id,
-        resourceType: 'SubsOrder',
-        resource: subsOrderAttrs,
-        data: subsOrder,
-        customer: customerObj,
-        orderItems: subsOrderItems,
-      });
-
-      // add init_order_id explicitly
-      subLog.ecforce_params.init_order_id = safeString(initOrderId);
-      logger.info(subLog);
-    }
+    logMainOrder(account, customer, customerObj, orderAttrs, orderData, orderItems);
+    logSubsOrder(account, customer, customerObj, orderAttrs, subsOrder, included);
 
     return ecOrder;
   } catch (err) {
-    logger.error('OrderLoggerService failed to fetch/log order', { message: err.message, stack: err.stack });
+    logger.error('OrderLoggerService failed to fetch/log order', { 
+      message: err.message, 
+      stack: err.stack 
+    });
     return null;
   }
+}
+
+/**
+ * Extract order data and included resources
+ * @private
+ */
+function extractOrderData(ecOrder) {
+  const orderData = ecOrder.body || ecOrder;
+  const included = Array.isArray(orderData.included) ? orderData.included : [];
+  return { orderData, included };
+}
+
+/**
+ * Parse order includes to extract related objects
+ * @private
+ */
+function parseOrderIncludes(orderData, included) {
+  const customerObj = included.find((i) => i.type === 'customer') || null;
+  const orderItemIds = (orderData?.data?.relationships?.order_items?.data || []).map((i) => i.id);
+  const orderItems = included.filter((i) => i.type === 'order_item' && orderItemIds.includes(i.id));
+  const subsOrder = included.find((i) => i.type === 'sub_order') || null;
+  const orderAttrs = (orderData?.data && orderData.data.attributes) ? orderData.data.attributes : {};
+
+  return { customerObj, orderItems, subsOrder, orderAttrs };
+}
+
+/**
+ * Log main order information
+ * @private
+ */
+function logMainOrder(account, customer, customerObj, orderAttrs, orderData, orderItems) {
+  const mainLog = buildLog({
+    kind: 'order_created',
+    accountId: account.id,
+    customerId: customer?.id || customerObj?.id,
+    resource: orderAttrs,
+    data: orderData,
+    customer: customerObj,
+    orderItems,
+  });
+
+  logger.info(mainLog);
+}
+
+/**
+ * Log subscription order if present
+ * @private
+ */
+function logSubsOrder(account, customer, customerObj, orderAttrs, subsOrder, included) {
+  if (!orderAttrs.subs_order_id && !subsOrder) return;
+
+  const subsOrderAttrs = subsOrder?.attributes || {};
+  const subsOrderItemIds = (subsOrder?.relationships?.order_items?.data || []).map((i) => i.id);
+  const subsOrderItems = included.filter((i) => i.type === 'order_item' && subsOrderItemIds.includes(i.id));
+  const initOrderId = (subsOrder?.relationships?.orders?.data || []).map((i) => i.id)[0] || '';
+
+  const subLog = buildLog({
+    kind: 'subs_order_created',
+    accountId: account.id,
+    customerId: customer?.id || customerObj?.id,
+    resourceType: 'SubsOrder',
+    resource: subsOrderAttrs,
+    data: subsOrder,
+    customer: customerObj,
+    orderItems: subsOrderItems,
+  });
+
+  subLog.ecforce_params.init_order_id = safeString(initOrderId);
+  logger.info(subLog);
 }
 
 module.exports = {
