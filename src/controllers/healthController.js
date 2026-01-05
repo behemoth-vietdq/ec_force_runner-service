@@ -24,6 +24,16 @@ class HealthController {
    * Detailed health check with dependency checks
    */
   static async checkHealthDetailed(req, res) {
+    const checks = await HealthController._performHealthChecks();
+    const statusCode = checks.status === 'healthy' ? 200 : 503;
+    res.status(statusCode).json(checks);
+  }
+
+  /**
+   * Perform all health checks
+   * @private
+   */
+  static async _performHealthChecks() {
     const checks = {
       uptime: process.uptime(),
       timestamp: Date.now(),
@@ -32,16 +42,37 @@ class HealthController {
       checks: {},
     };
 
-    // Memory check
+    checks.checks.memory = HealthController._checkMemory();
+    checks.checks.browser = await HealthController._checkBrowser();
+    checks.checks.gcs = await HealthController._checkGCS();
+
+    // Update overall status based on individual checks
+    if (HealthController._hasErrors(checks.checks)) {
+      checks.status = 'degraded';
+    }
+
+    return checks;
+  }
+
+  /**
+   * Check memory usage
+   * @private
+   */
+  static _checkMemory() {
     const memUsage = process.memoryUsage();
-    checks.checks.memory = {
+    return {
       status: 'ok',
       rss: `${Math.round(memUsage.rss / 1024 / 1024)}MB`,
       heapUsed: `${Math.round(memUsage.heapUsed / 1024 / 1024)}MB`,
       heapTotal: `${Math.round(memUsage.heapTotal / 1024 / 1024)}MB`,
     };
+  }
 
-    // Browser check
+  /**
+   * Check browser availability
+   * @private
+   */
+  static async _checkBrowser() {
     try {
       const browser = await puppeteer.launch({
         headless: true,
@@ -49,36 +80,42 @@ class HealthController {
         timeout: 5000,
       });
       await browser.close();
-      checks.checks.browser = { status: 'ok', message: 'Browser can launch' };
+      return { status: 'ok', message: 'Browser can launch' };
     } catch (error) {
-      checks.checks.browser = { status: 'error', message: getErrorMessage(error) };
-      checks.status = 'degraded';
+      return { status: 'error', message: getErrorMessage(error) };
+    }
+  }
+
+  /**
+   * Check GCS availability
+   * @private
+   */
+  static async _checkGCS() {
+    if (!config.gcs.bucketName || !config.gcs.keyFile) {
+      return { status: 'not_configured', message: 'GCS not configured' };
     }
 
-    // GCS check (if configured)
-    if (config.gcs.bucketName && config.gcs.keyFile) {
-      try {
-        const { Storage } = require('@google-cloud/storage');
-        const storage = new Storage({
-          keyFilename: config.gcs.keyFile,
-          projectId: config.gcs.projectId,
-        });
-        const bucket = storage.bucket(config.gcs.bucketName);
-        await bucket.exists();
-        checks.checks.gcs = { status: 'ok', message: 'GCS accessible' };
-      } catch (error) {
-        checks.checks.gcs = { status: 'error', message: getErrorMessage(error) };
-        checks.status = 'degraded';
-      }
-    } else {
-      checks.checks.gcs = { status: 'not_configured', message: 'GCS not configured' };
+    try {
+      const { Storage } = require('@google-cloud/storage');
+      const storage = new Storage({
+        keyFilename: config.gcs.keyFile,
+        projectId: config.gcs.projectId,
+      });
+      const bucket = storage.bucket(config.gcs.bucketName);
+      await bucket.exists();
+      return { status: 'ok', message: 'GCS accessible' };
+    } catch (error) {
+      return { status: 'error', message: getErrorMessage(error) };
     }
+  }
 
-    const statusCode = checks.status === 'healthy' ? 200 : 503;
-    res.status(statusCode).json(checks);
+  /**
+   * Check if any check has errors
+   * @private
+   */
+  static _hasErrors(checks) {
+    return Object.values(checks).some(check => check.status === 'error');
   }
 }
 
-module.exports = HealthController;
-module.exports.healthCheck = HealthController.checkHealth;
 module.exports = HealthController;

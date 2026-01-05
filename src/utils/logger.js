@@ -76,30 +76,17 @@ const originalError = logger.error.bind(logger);
 const originalWarn = logger.warn.bind(logger);
 const originalDebug = logger.debug.bind(logger);
 
-// Helper to convert message + meta + requestId into a single string
+/**
+ * Format log message with metadata and request ID
+ */
 const formatLogMessage = (message, meta = {}, requestId) => {
-  let msgStr;
-  if (typeof message === 'string') {
-    msgStr = message;
-  } else {
-    try {
-      msgStr = JSON.stringify(message);
-    } catch (e) {
-      msgStr = String(message);
-    }
-  }
+  let msgStr = typeof message === 'string' ? message : serializeValue(message);
 
-  // Attach meta if present
   const hasMeta = meta && Object.keys(meta).length > 0;
   if (hasMeta) {
-    try {
-      msgStr = `${msgStr} | ${JSON.stringify(meta)}`;
-    } catch (e) {
-      msgStr = `${msgStr} | ${String(meta)}`;
-    }
+    msgStr = `${msgStr} | ${serializeValue(meta)}`;
   }
 
-  // Prefix requestId for easy searching in string logs
   if (requestId) {
     msgStr = `[${requestId}] ${msgStr}`;
   }
@@ -107,34 +94,36 @@ const formatLogMessage = (message, meta = {}, requestId) => {
   return msgStr;
 };
 
+/**
+ * Serialize value to string
+ * @private
+ */
+function serializeValue(value) {
+  try {
+    return JSON.stringify(value);
+  } catch (e) {
+    return String(value);
+  }
+}
+
+/**
+ * Create logger method with request ID context
+ * @private
+ */
+function createLoggerMethod(originalMethod) {
+  return (message, meta = {}) => {
+    const store = getContext();
+    const requestId = store?.requestId;
+    const combined = formatLogMessage(message, meta, requestId);
+    return originalMethod(combined);
+  };
+}
+
 // Override methods to always log a single string (message + serialized meta)
-logger.info = (message, meta = {}) => {
-  const store = getContext();
-  const requestId = store?.requestId;
-  const combined = formatLogMessage(message, meta, requestId);
-  return originalInfo(combined);
-};
-
-logger.error = (message, meta = {}) => {
-  const store = getContext();
-  const requestId = store?.requestId;
-  const combined = formatLogMessage(message, meta, requestId);
-  return originalError(combined);
-};
-
-logger.warn = (message, meta = {}) => {
-  const store = getContext();
-  const requestId = store?.requestId;
-  const combined = formatLogMessage(message, meta, requestId);
-  return originalWarn(combined);
-};
-
-logger.debug = (message, meta = {}) => {
-  const store = getContext();
-  const requestId = store?.requestId;
-  const combined = formatLogMessage(message, meta, requestId);
-  return originalDebug(combined);
-};
+logger.info = createLoggerMethod(originalInfo);
+logger.error = createLoggerMethod(originalError);
+logger.warn = createLoggerMethod(originalWarn);
+logger.debug = createLoggerMethod(originalDebug);
 
 /**
  * Format error message consistently

@@ -271,15 +271,10 @@ class BaseCrawler {
   async clickElement(selector, options = {}) {
     const maxRetries = options.maxRetries || constants.RETRIES.CLICK_MAX;
     let lastError;
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const element = await this.waitForElement(selector, options);
-        await this.page.evaluate(
-          (el) => el.scrollIntoView({ behavior: "smooth", block: "center" }),
-          element
-        );
-        await this.sleep(constants.DELAYS.AFTER_SCROLL);
-        await element.click();
+        await this._performClick(selector, options);
         logger.debug(`Element clicked: ${selector}`);
         return;
       } catch (error) {
@@ -287,27 +282,65 @@ class BaseCrawler {
         logger.warn(
           `Click attempt ${attempt} failed for ${selector}: ${getErrorMessage(error)}`
         );
-        if (attempt < maxRetries) await this.sleep(constants.DELAYS.BETWEEN_RETRIES);
+        if (attempt < maxRetries) {
+          await this.sleep(constants.DELAYS.BETWEEN_RETRIES);
+        }
       }
     }
-    // Fallback JS click
+
+    // Fallback to JS click
+    if (await this._tryJsClick(selector)) {
+      return;
+    }
+
+    await this.handleError(
+      lastError,
+      `click_failed_${selector.replace(/[^a-zA-Z0-9]/g, "_")}`
+    );
+    throw new CrawlerError(
+      `Failed to click ${selector} after ${maxRetries} attempts`,
+      ErrorCodes.ELEMENT_INTERACTION_FAILED,
+      500,
+      { selector, originalError: lastError?.message || String(lastError) }
+    );
+  }
+
+  /**
+   * Perform click on element
+   * @private
+   */
+  async _performClick(selector, options) {
+    const element = await this.waitForElement(selector, options);
+    await this._scrollIntoView(element);
+    await this.sleep(constants.DELAYS.AFTER_SCROLL);
+    await element.click();
+  }
+
+  /**
+   * Scroll element into view
+   * @private
+   */
+  async _scrollIntoView(element) {
+    await this.page.evaluate(
+      (el) => el.scrollIntoView({ behavior: "smooth", block: "center" }),
+      element
+    );
+  }
+
+  /**
+   * Try JavaScript click as fallback
+   * @private
+   */
+  async _tryJsClick(selector) {
     try {
       await this.page.evaluate(
         (sel) => document.querySelector(sel)?.click(),
         selector
       );
       logger.info(`JS click successful: ${selector}`);
+      return true;
     } catch {
-      await this.handleError(
-        lastError,
-        `click_failed_${selector.replace(/[^a-zA-Z0-9]/g, "_")}`
-      );
-      throw new CrawlerError(
-        `Failed to click ${selector} after ${maxRetries} attempts`,
-        ErrorCodes.ELEMENT_INTERACTION_FAILED,
-        500,
-        { selector, originalError: lastError?.message || String(lastError) }
-      );
+      return false;
     }
   }
 
@@ -316,40 +349,24 @@ class BaseCrawler {
    */
   async fillInput(selector, value, options = {}) {
     if (!value) return;
+
     const maxRetries = options.maxRetries || constants.RETRIES.FILL_INPUT_MAX;
     let lastError;
+
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        const element = await this.waitForElement(selector, options);
-        await this.page.evaluate(
-          (el) => el.scrollIntoView({ behavior: "smooth", block: "center" }),
-          element
-        );
-        await this.sleep(constants.DELAYS.BEFORE_CLICK);
-        await element.click();
-        await this.sleep(constants.DELAYS.BEFORE_TYPE);
-        // Clear and type
-        await this.page.evaluate((sel) => {
-          const el = document.querySelector(sel);
-          if (el) el.value = "";
-        }, selector);
-        await element.type(value, { delay: constants.DELAYS.TYPING_DELAY });
-        // Verify
-        const actual = await this.page.evaluate(
-          (sel) => document.querySelector(sel)?.value,
-          selector
-        );
-        if (actual === value) {
-          logger.debug(`Input filled: ${selector} = ${value}`);
-          return;
-        }
-        throw new Error(`Value mismatch: expected ${value}, got ${actual}`);
+        await this._fillAndVerify(selector, value, options);
+        logger.debug(`Input filled: ${selector} = ${value}`);
+        return;
       } catch (error) {
         lastError = error;
         logger.warn(`Fill attempt ${attempt} failed: ${getErrorMessage(error)}`);
-        if (attempt < maxRetries) await this.sleep(constants.DELAYS.BETWEEN_RETRIES);
+        if (attempt < maxRetries) {
+          await this.sleep(constants.DELAYS.BETWEEN_RETRIES);
+        }
       }
     }
+
     await this.handleError(
       lastError,
       `fill_failed_${selector.replace(/[^a-zA-Z0-9]/g, "_")}`
@@ -359,6 +376,50 @@ class BaseCrawler {
       ErrorCodes.ELEMENT_INTERACTION_FAILED,
       500,
       { selector, value, originalError: lastError?.message || String(lastError) }
+    );
+  }
+
+  /**
+   * Fill input and verify value
+   * @private
+   */
+  async _fillAndVerify(selector, value, options) {
+    const element = await this.waitForElement(selector, options);
+    await this._scrollIntoView(element);
+    await this.sleep(constants.DELAYS.BEFORE_CLICK);
+    await element.click();
+    await this.sleep(constants.DELAYS.BEFORE_TYPE);
+
+    // Clear and type
+    await this._clearInput(selector);
+    await element.type(value, { delay: constants.DELAYS.TYPING_DELAY });
+
+    // Verify
+    const actualValue = await this._getInputValue(selector);
+    if (actualValue !== value) {
+      throw new Error(`Value mismatch: expected ${value}, got ${actualValue}`);
+    }
+  }
+
+  /**
+   * Clear input field
+   * @private
+   */
+  async _clearInput(selector) {
+    await this.page.evaluate((sel) => {
+      const el = document.querySelector(sel);
+      if (el) el.value = "";
+    }, selector);
+  }
+
+  /**
+   * Get input field value
+   * @private
+   */
+  async _getInputValue(selector) {
+    return await this.page.evaluate(
+      (sel) => document.querySelector(sel)?.value,
+      selector
     );
   }
 
