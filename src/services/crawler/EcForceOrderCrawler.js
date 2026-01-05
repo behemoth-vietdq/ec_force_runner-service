@@ -728,33 +728,35 @@ class EcForceOrderCrawler extends BaseCrawler {
    * Select payment method (credit card or other).
    */
   async selectPaymentMethod() {
-    const paymentMethodId = this.formData.payment_method_id;
-    logger.info(
-      `Selecting payment method - paymentMethodId: ${paymentMethodId}`
-    );
+    const { payment_method_id, credit_card_id } = this.formData;
+    logger.info(`Selecting payment method - paymentMethodId: ${payment_method_id}`);
 
-    // Select payment method
     await this.selectOption(
       EC_FORCE_SELECTORS.orderForm.paymentMethod,
-      paymentMethodId
+      payment_method_id
     );
 
-    // If credit card and credit_card_id provided, select the card
-    if (this.formData.credit_card_id) {
-      await this.sleep(500); // Wait for credit card dropdown to appear
-
-      if (
-        await this.elementExists(EC_FORCE_SELECTORS.orderForm.creditCard, 2000)
-      ) {
-        await this.selectOption(
-          EC_FORCE_SELECTORS.orderForm.creditCard,
-          this.formData.credit_card_id
-        );
-        logger.debug("Credit card selected");
-      }
+    if (credit_card_id) {
+      await this._selectCreditCard(credit_card_id);
     }
 
     logger.debug("Payment method selected");
+  }
+
+  /**
+   * Select credit card if available
+   * @private
+   */
+  async _selectCreditCard(creditCardId) {
+    await this.sleep(500);
+
+    if (await this.elementExists(EC_FORCE_SELECTORS.orderForm.creditCard, 2000)) {
+      await this.selectOption(
+        EC_FORCE_SELECTORS.orderForm.creditCard,
+        creditCardId
+      );
+      logger.debug("Credit card selected");
+    }
   }
 
   /**
