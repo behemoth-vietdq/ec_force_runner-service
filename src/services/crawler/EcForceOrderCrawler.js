@@ -389,7 +389,8 @@ class EcForceOrderCrawler extends BaseCrawler {
         await el.click({ delay: 50 });
         return true;
       }
-    } catch {
+    } catch (e) {
+      // Selector not found or click failed, try next strategy
       return false;
     }
     return false;
@@ -448,8 +449,8 @@ class EcForceOrderCrawler extends BaseCrawler {
         }),
         this.sleep(1500),
       ]);
-    } catch {
-      // Navigation may not happen immediately; ignore
+    } catch (e) {
+      // Navigation may not happen immediately; ignore and continue
     }
   }
 

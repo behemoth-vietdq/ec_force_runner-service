@@ -13,7 +13,8 @@ function jsonOrNull(value) {
     if (value == null) return null;
     if (Array.isArray(value) && value.length === 0) return null;
     return JSON.stringify(value);
-  } catch {
+  } catch (e) {
+    // Serialization failed, return null
     return null;
   }
 }
