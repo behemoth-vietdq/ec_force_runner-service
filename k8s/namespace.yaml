@@ -1,0 +1,10 @@
+# =============================================================================
+# Namespace for Line Shop Runner Service
+# =============================================================================
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: line-shop
+  labels:
+    app.kubernetes.io/name: line-shop
+    app.kubernetes.io/component: namespace

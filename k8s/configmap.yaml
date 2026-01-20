@@ -1,0 +1,45 @@
+# =============================================================================
+# ConfigMap for Line Shop Runner Service
+# Non-sensitive configuration values
+# =============================================================================
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: line-shop-runner-config
+  namespace: line-shop
+  labels:
+    app.kubernetes.io/name: line-shop-runner
+    app.kubernetes.io/component: config
+data:
+  # Application settings
+  APP_ENV: "production"
+  APP_PORT: "4000"
+  APP_HOST: "0.0.0.0"
+  
+  # Timeouts (milliseconds)
+  REQUEST_TIMEOUT_MS: "300000"
+  SHUTDOWN_TIMEOUT_MS: "300000"
+  PUPPETEER_TIMEOUT: "300000"
+  
+  # Crawler settings
+  CRAWLER_DEBUGGING: "false"
+  SCREENSHOTS_DISABLED: "false"
+  SCREENSHOTS_DIR: "screenshots"
+  
+  # Logging
+  LOG_LEVEL: "info"
+  LOG_FORMAT: "json"
+  LOG_FILE: "./logs/app.log"
+  
+  # Rate limiting
+  DISABLE_RATE_LIMIT: "false"
+  RATE_LIMIT_WINDOW_MS: "60000"
+  RATE_LIMIT_MAX_REQUESTS: "60"
+  
+  # Metrics
+  METRICS_DISABLED: "false"
+  METRICS_PATH: "/metrics"
+  
+  # GCS settings (bucket name - not sensitive)
+  # GCS_BUCKET_NAME: "your-bucket-name"
+  # GCS_PROJECT_ID: "your-project-id"

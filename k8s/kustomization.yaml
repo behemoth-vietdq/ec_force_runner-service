@@ -1,0 +1,47 @@
+# =============================================================================
+# Kustomization for Line Shop Runner Service
+# Usage: kubectl apply -k k8s/
+# =============================================================================
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: line-shop-runner
+
+namespace: line-shop
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/name: line-shop-runner
+  app.kubernetes.io/part-of: line-shop
+  app.kubernetes.io/managed-by: kustomize
+
+# Resources to include
+resources:
+  - namespace.yaml
+  - configmap.yaml
+  - secret.yaml
+  - deployment.yaml
+  - service.yaml
+  - hpa.yaml
+  # Uncomment as needed:
+  # - ingress.yaml
+  # - servicemonitor.yaml
+
+# Image customization
+images:
+  - name: line-shop-runner-service
+    newName: your-registry/line-shop-runner-service
+    newTag: latest
+
+# ConfigMap generator (alternative to configmap.yaml)
+# configMapGenerator:
+#   - name: line-shop-runner-config
+#     envs:
+#       - .env.production
+
+# Secret generator (alternative to secret.yaml)
+# secretGenerator:
+#   - name: line-shop-runner-secrets
+#     envs:
+#       - .env.secrets

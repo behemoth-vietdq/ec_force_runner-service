@@ -8,10 +8,23 @@ const {
   saveScreenshot,
 } = require("../../utils/screenshot");
 const { CrawlerError, ErrorCodes } = require("../../middleware/errorHandler");
+const {
+  recordCrawlerExecution,
+  recordCrawlerError,
+  recordCrawlerStep,
+  recordScreenshot,
+} = require("../../utils/metrics");
 
 /**
  * Base Crawler with common Puppeteer operations
  * Provides browser initialization, navigation, element interactions, error handling
+ * 
+ * Features:
+ * - Browser lifecycle management with proper cleanup
+ * - Retry logic with exponential backoff
+ * - Screenshot capture on errors
+ * - Prometheus metrics integration
+ * - Timeout handling
  */
 class BaseCrawler {
   constructor(options = {}) {
@@ -19,10 +32,42 @@ class BaseCrawler {
     this.page = null;
     this.options = { ...config.puppeteer, ...options };
     this.startTime = Date.now();
+    this.stepTimings = {}; // Track step execution times
+    this.isClosing = false; // Prevent concurrent close operations
   }
 
   /**
-   * Initialize browser instance
+   * Get execution time in seconds
+   */
+  getExecutionTimeSeconds() {
+    return (Date.now() - this.startTime) / 1000;
+  }
+
+  /**
+   * Start timing a step
+   */
+  startStep(stepName) {
+    this.stepTimings[stepName] = Date.now();
+    logger.debug(`Starting step: ${stepName}`);
+  }
+
+  /**
+   * End timing a step and record metrics
+   */
+  endStep(stepName) {
+    const startTime = this.stepTimings[stepName];
+    if (startTime) {
+      const durationSeconds = (Date.now() - startTime) / 1000;
+      recordCrawlerStep(stepName, durationSeconds);
+      logger.debug(`Step ${stepName} completed in ${durationSeconds.toFixed(2)}s`);
+      delete this.stepTimings[stepName];
+      return durationSeconds;
+    }
+    return 0;
+  }
+
+  /**
+   * Initialize browser instance with timeout protection
    */
   async initBrowser() {
     // Don't re-initialize if browser already exists
@@ -31,35 +76,56 @@ class BaseCrawler {
       return this.page;
     }
 
+    this.startStep('browser_init');
     let browser = null;
+    
     try {
       const headless = this.options.headless;
+      const initTimeout = constants.HEALTH_CHECK.BROWSER_TEST_TIMEOUT * 2; // 10s for init
 
       logger.info(`Initializing browser - headless: ${headless}`);
 
-      browser = await this._launchBrowser(headless);
+      // Launch browser with timeout protection
+      browser = await this._withTimeout(
+        this._launchBrowser(headless),
+        initTimeout,
+        'Browser launch timeout'
+      );
+      
       const page = await browser.newPage();
 
+      // Set user agent if provided
       if (this.options.userAgent) {
         await page.setUserAgent(this.options.userAgent);
       }
 
+      // Set default timeout for all operations
       page.setDefaultTimeout(this.options.timeout);
+      page.setDefaultNavigationTimeout(this.options.timeout);
 
-      // Use 'once' instead of 'on' to prevent memory leaks
+      // Set up event handlers
       if (config.crawler.debugging) {
         page.on("console", this._handleConsoleLog);
       }
       page.on("pageerror", this._handlePageError);
+      
+      // Handle dialog boxes automatically (prevent hanging)
+      page.on("dialog", async (dialog) => {
+        logger.warn(`Dialog appeared: ${dialog.type()} - ${dialog.message()}`);
+        await dialog.dismiss().catch(() => {});
+      });
 
       // Store references only after successful initialization
       this.browser = browser;
       this.page = page;
 
+      this.endStep('browser_init');
       logger.info("Browser initialized successfully");
       return this.page;
     } catch (error) {
+      this.endStep('browser_init');
       logger.error(`Failed to initialize browser: ${getErrorMessage(error)}`);
+      recordCrawlerError('BROWSER_INIT_FAILED', 'unknown');
       
       // Critical: close browser if it was created but page setup failed
       if (browser) {
@@ -77,6 +143,28 @@ class BaseCrawler {
         500,
         { originalError: getErrorMessage(error) }
       );
+    }
+  }
+
+  /**
+   * Execute promise with timeout
+   * @private
+   */
+  async _withTimeout(promise, timeoutMs, errorMessage) {
+    let timeoutId;
+    const timeoutPromise = new Promise((_, reject) => {
+      timeoutId = setTimeout(() => {
+        reject(new CrawlerError(errorMessage, ErrorCodes.TIMEOUT_ERROR, 504));
+      }, timeoutMs);
+    });
+
+    try {
+      const result = await Promise.race([promise, timeoutPromise]);
+      clearTimeout(timeoutId);
+      return result;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
     }
   }
 
@@ -163,8 +251,15 @@ class BaseCrawler {
   /**
    * Close browser safely with proper cleanup
    * Forces browser termination if graceful close fails
+   * Thread-safe: prevents concurrent close operations
    */
   async closeBrowser() {
+    // Prevent concurrent close operations
+    if (this.isClosing) {
+      logger.debug('Browser close already in progress, skipping');
+      return;
+    }
+    
     // Atomically check and clear references to prevent double-close
     const browser = this.browser;
     const page = this.page;
@@ -173,45 +268,68 @@ class BaseCrawler {
       return; // Already closed
     }
 
+    this.isClosing = true;
+    
     // Clear references immediately to prevent race conditions
     this.browser = null;
     this.page = null;
 
+    const closeTimeout = 10000; // 10 seconds
+
     try {
       // Remove event listeners to prevent memory leaks
       if (page) {
-        page.off("console", this._handleConsoleLog);
-        page.off("pageerror", this._handlePageError);
+        try {
+          page.off("console", this._handleConsoleLog);
+          page.off("pageerror", this._handlePageError);
+          page.removeAllListeners("dialog");
+        } catch (e) {
+          // Ignore errors removing listeners
+        }
       }
       
       // Close all pages first to prevent orphaned pages
-      const pages = await browser.pages();
-      await Promise.all(pages.map(p => p.close().catch(e => {
-        logger.warn(`Failed to close page: ${e.message}`);
-      })));
+      try {
+        const pages = await browser.pages();
+        await Promise.all(pages.map(p => p.close().catch(e => {
+          logger.warn(`Failed to close page: ${e.message}`);
+        })));
+      } catch (e) {
+        logger.warn(`Failed to get/close pages: ${e.message}`);
+      }
       
       // Close browser with timeout
-      const closePromise = browser.close();
-      const timeoutPromise = new Promise((_, reject) => 
-        setTimeout(() => reject(new Error('Browser close timeout')), 10000)
+      await this._withTimeout(
+        browser.close(),
+        closeTimeout,
+        'Browser close timeout'
       );
       
-      await Promise.race([closePromise, timeoutPromise]);
       logger.info("Browser closed successfully");
     } catch (error) {
       logger.error(`Error closing browser: ${getErrorMessage(error)}`);
       
       // Force kill browser process if close failed
-      try {
-        const browserProcess = browser.process();
-        if (browserProcess && !browserProcess.killed) {
-          logger.warn('Force killing browser process');
-          browserProcess.kill('SIGKILL');
-          logger.info('Browser process killed');
-        }
-      } catch (killError) {
-        logger.error(`Failed to kill browser process: ${getErrorMessage(killError)}`);
+      this._forceKillBrowser(browser);
+    } finally {
+      this.isClosing = false;
+    }
+  }
+
+  /**
+   * Force kill browser process
+   * @private
+   */
+  _forceKillBrowser(browser) {
+    try {
+      const browserProcess = browser.process();
+      if (browserProcess && !browserProcess.killed) {
+        logger.warn('Force killing browser process');
+        browserProcess.kill('SIGKILL');
+        logger.info('Browser process killed');
       }
+    } catch (killError) {
+      logger.error(`Failed to kill browser process: ${getErrorMessage(killError)}`);
     }
   }
 
@@ -446,15 +564,17 @@ class BaseCrawler {
   }
 
   /**
-   * Take screenshot
+   * Take screenshot with metrics tracking
    */
-  async takeScreenshot(filename = null) {
+  async takeScreenshot(filename = null, type = 'debug') {
     if (!this.page) {
       logger.warn("Cannot take screenshot: page is null");
       return null;
     }
     try {
-      return await saveScreenshot(this.page, filename);
+      const result = await saveScreenshot(this.page, filename);
+      recordScreenshot(type);
+      return result;
     } catch (error) {
       logger.error("Failed to take screenshot:", error);
       return null;
@@ -462,15 +582,31 @@ class BaseCrawler {
   }
 
   /**
-   * Handle error with logging and screenshot
+   * Handle error with logging, screenshot, and metrics
    */
   async handleError(error, context = "") {
+    const errorCode = error?.code || 'UNKNOWN_ERROR';
+    
     logger.error(
       `Error in ${context}: ${getErrorMessage(error)}\nStack: ${error?.stack || ''}`
     );
+    
+    // Record error metric
+    recordCrawlerError(errorCode, this._getShopIdentifier());
+    
+    // Take error screenshot
     if (this.page && config.crawler.screenshotsEnabled) {
       await saveErrorScreenshot(this.page, error, context);
+      recordScreenshot('error');
     }
+  }
+
+  /**
+   * Get shop identifier for metrics (override in subclass)
+   * @protected
+   */
+  _getShopIdentifier() {
+    return 'unknown';
   }
 
   /**
@@ -493,29 +629,76 @@ class BaseCrawler {
   }
 
   /**
-   * Retry function with configurable attempts and delay
+   * Retry function with configurable attempts and exponential backoff
    */
   async withRetry(
     fn,
     maxAttempts = constants.RETRIES.DEFAULT_MAX,
-    delayMs = constants.DELAYS.BETWEEN_RETRIES * 4
+    initialDelayMs = constants.DELAYS.BETWEEN_RETRIES * 2,
+    options = {}
   ) {
+    const { stepName = 'operation', backoffMultiplier = 2 } = options;
     let lastError;
+    let currentDelay = initialDelayMs;
+    
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
         return await fn();
       } catch (error) {
         lastError = error;
-        logger.warn(`Retry ${attempt}/${maxAttempts} failed: ${getErrorMessage(error)}`);
-        if (attempt < maxAttempts) await this.sleep(delayMs);
+        
+        const isLastAttempt = attempt >= maxAttempts;
+        const logLevel = isLastAttempt ? 'error' : 'warn';
+        
+        logger[logLevel](
+          `${stepName} attempt ${attempt}/${maxAttempts} failed: ${getErrorMessage(error)}`
+        );
+        
+        if (!isLastAttempt) {
+          logger.info(`Retrying ${stepName} in ${currentDelay}ms...`);
+          await this.sleep(currentDelay);
+          currentDelay = Math.min(currentDelay * backoffMultiplier, 30000); // Max 30s
+        }
       }
     }
     
     // Ensure we always throw a proper error
     if (!lastError) {
-      lastError = new Error('Retry failed with unknown error');
+      lastError = new Error(`${stepName} failed with unknown error`);
     }
     throw lastError;
+  }
+
+  /**
+   * Execute operation with total timeout
+   * Useful for operations that may hang indefinitely
+   */
+  async withTotalTimeout(fn, timeoutMs, operationName = 'operation') {
+    return this._withTimeout(
+      fn(),
+      timeoutMs,
+      `${operationName} exceeded timeout of ${timeoutMs}ms`
+    );
+  }
+
+  /**
+   * Check if browser is still connected
+   */
+  isBrowserConnected() {
+    return this.browser && this.browser.isConnected();
+  }
+
+  /**
+   * Ensure browser is still connected, throw if not
+   */
+  ensureBrowserConnected() {
+    if (!this.isBrowserConnected()) {
+      throw new CrawlerError(
+        'Browser disconnected unexpectedly',
+        ErrorCodes.BROWSER_INIT_FAILED,
+        500
+      );
+    }
   }
 }
 

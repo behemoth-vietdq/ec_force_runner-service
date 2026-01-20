@@ -1,7 +1,15 @@
 const BaseCrawler = require("./BaseCrawler");
 const logger = require("../../utils/logger");
+const { getErrorMessage } = require("../../utils/logger");
 const { CrawlerError, ErrorCodes } = require("../../middleware/errorHandler");
 const { sanitizeUrl, sanitizeCustomerId } = require("../../utils/sanitizer");
+const {
+  recordCrawlerExecution,
+  recordCrawlerError,
+  recordOrderCreated,
+  recordOrderFailed,
+} = require("../../utils/metrics");
+
 // Order notifications are handled at controller level to centralize failure handling
 
 // Centralize selectors and texts for easy maintenance
@@ -59,13 +67,61 @@ class EcForceOrderCrawler extends BaseCrawler {
       );
     }
 
+    // Validate and sanitize shop URL
+    if (!ecForceInfo.shop_url) {
+      throw new CrawlerError(
+        "Missing shop_url in ec_force_info",
+        ErrorCodes.VALIDATION_ERROR,
+        400
+      );
+    }
+
+    try {
+      this.shopUrl = sanitizeUrl(ecForceInfo.shop_url);
+    } catch (error) {
+      throw new CrawlerError(
+        `Invalid shop_url: ${error.message}`,
+        ErrorCodes.VALIDATION_ERROR,
+        400
+      );
+    }
+
+    // Validate credentials
+    if (!ecForceInfo.email || !ecForceInfo.password) {
+      throw new CrawlerError(
+        "Missing email or password in ec_force_info",
+        ErrorCodes.VALIDATION_ERROR,
+        400
+      );
+    }
+
     this.credentials = {
       admin_email: ecForceInfo.email,
       admin_password: ecForceInfo.password,
     };
-    this.shopUrl = ecForceInfo.shop_url;
+    
     this.orderResult = null;
+    this._shopHostname = this._extractHostname(this.shopUrl);
+  }
 
+  /**
+   * Extract hostname from URL for metrics
+   * @private
+   */
+  _extractHostname(url) {
+    try {
+      return new URL(url).hostname;
+    } catch {
+      return 'unknown';
+    }
+  }
+
+  /**
+   * Override to provide shop identifier for metrics
+   * @protected
+   */
+  _getShopIdentifier() {
+    return this._shopHostname || 'unknown';
   }
 
   /**
@@ -126,26 +182,36 @@ class EcForceOrderCrawler extends BaseCrawler {
   }
 
   /**
-   * Main execution method with circuit breaker protection.
+   * Main execution method with metrics tracking.
    * @returns {Object} Success result or throws error.
    */
   async execute() {
     const startTime = Date.now();
+    const shop = this._getShopIdentifier();
 
     logger.info(
-      `Starting EC-Force order creation - formCustomerId: ${this.formData.customer_id}`
+      `Starting EC-Force order creation - shop: ${shop}, formCustomerId: ${this.formData.customer_id}`
     );
 
     try {
+      // Initialize browser
       await this.initBrowser();
+      this.ensureBrowserConnected();
 
       await this.page.setViewport({ width: 1920, height: 1080 });
 
+      // Execute order creation flow
       await this.run();
 
       const executionTime = Date.now() - startTime;
+      const executionTimeSeconds = executionTime / 1000;
+      
+      // Record success metrics
+      recordCrawlerExecution('success', shop, executionTimeSeconds);
+      recordOrderCreated(shop);
+      
       logger.info(
-        `Order creation completed successfully - executionTime: ${executionTime}ms, orderId: ${this.orderResult?.order_id}, orderNumber: ${this.orderResult?.order_number}`
+        `Order creation completed successfully - shop: ${shop}, executionTime: ${executionTime}ms, orderId: ${this.orderResult?.order_id}, orderNumber: ${this.orderResult?.order_number}`
       );
 
       return {
@@ -155,64 +221,100 @@ class EcForceOrderCrawler extends BaseCrawler {
       };
     } catch (error) {
       const executionTime = Date.now() - startTime;
+      const executionTimeSeconds = executionTime / 1000;
 
-      // Handle undefined errors
-      if (error === undefined || error === null) {
-        logger.error(
-          `Order creation failed with undefined/null error - executionTime: ${executionTime}ms`
-        );
-        logger.error(
-          "Stack trace:",
-          new Error("Undefined error occurred").stack
-        );
+      // Wrap undefined/null errors
+      const wrappedError = this._wrapError(error);
+      const errorCode = wrappedError.code || 'UNKNOWN_ERROR';
 
-        const wrappedError = new CrawlerError(
-          "Unknown error occurred (error was undefined)",
-          ErrorCodes.INTERNAL_ERROR,
-          500
-        );
-
-        await this.handleError(
-          wrappedError,
-          `ec_order_failed_${this.customer.ext_id}_${Date.now()}`
-        );
-        throw wrappedError;
-      }
+      // Record failure metrics
+      recordCrawlerExecution('failed', shop, executionTimeSeconds);
+      recordOrderFailed(shop, errorCode);
 
       logger.error(
-        `Order creation failed - executionTime: ${executionTime}ms, error: ${getErrorMessage(
-          error
-        )}`
+        `Order creation failed - shop: ${shop}, executionTime: ${executionTime}ms, errorCode: ${errorCode}, error: ${getErrorMessage(wrappedError)}`
       );
-      logger.error(error?.stack || String(error));
+      
+      if (wrappedError.stack) {
+        logger.error(`Stack trace: ${wrappedError.stack}`);
+      }
 
       await this.handleError(
-        error,
+        wrappedError,
         `ec_order_failed_${this.customer.ext_id}_${Date.now()}`
       );
-      throw error;
+      
+      throw wrappedError;
     } finally {
       await this.closeBrowser();
     }
   }
 
   /**
+   * Wrap undefined/null errors into CrawlerError
+   * @private
+   */
+  _wrapError(error) {
+    if (error === undefined || error === null) {
+      logger.error("Undefined/null error occurred - creating stack trace");
+      return new CrawlerError(
+        "Unknown error occurred (error was undefined)",
+        ErrorCodes.INTERNAL_ERROR,
+        500,
+        { stack: new Error().stack }
+      );
+    }
+    
+    if (error instanceof CrawlerError) {
+      return error;
+    }
+    
+    return CrawlerError.from(error);
+  }
+
+  /**
    * Main order creation flow.
    * Critical steps use withRetry for resilience.
+   * Each step is timed for metrics.
    */
   async run() {
+    // Ensure browser is still connected before starting
+    this.ensureBrowserConnected();
+
     // Step 1: Login (with retry)
-    await this.withRetry(() => this.login());
+    this.startStep('login');
+    await this.withRetry(
+      () => this.login(),
+      3,
+      2000,
+      { stepName: 'login' }
+    );
+    this.endStep('login');
 
     // Step 2: Navigate to order form
+    this.startStep('navigate');
     await this.navigateToOrderForm();
+    this.endStep('navigate');
 
     // Step 3: Fill order form (with retry for flaky interactions)
-    await this.withRetry(() => this.fillOrderForm());
+    this.startStep('fill_form');
+    await this.withRetry(
+      () => this.fillOrderForm(),
+      2,
+      1000,
+      { stepName: 'fill_form' }
+    );
+    this.endStep('fill_form');
 
-    // Step 4: Submit order and confirm in one step
-    await this.submitAndConfirmOrder(); // Step 6: Extract order details
+    // Step 4: Submit order and confirm
+    this.startStep('submit');
+    await this.submitAndConfirmOrder();
+    this.endStep('submit');
+
+    // Step 5: Extract order details
+    this.startStep('extract');
     await this.extractOrderDetails();
+    this.endStep('extract');
   }
 
   /**
@@ -465,10 +567,8 @@ class EcForceOrderCrawler extends BaseCrawler {
     });
   }
   async login() {
-    const maskedEmail = this.credentials.admin_email.replace(
-      /(.{2}).+(@.+)/,
-      "$1***$2"
-    );
+    // Mask email for logging (show first 2 chars and domain)
+    const maskedEmail = this._maskEmail(this.credentials.admin_email);
     logger.info(`Step 1: Logging in to EC-Force - email: ${maskedEmail}`);
 
     await this.navigateToUrl(`${this.shopUrl}/admin`);
@@ -479,21 +579,39 @@ class EcForceOrderCrawler extends BaseCrawler {
       return;
     }
 
-    // Fill login form and submit
-    await this.page.evaluate(
+    // Fill login form and submit using page.evaluate for atomicity
+    const loginResult = await this.page.evaluate(
       (selectors, email, password) => {
-        document.querySelector(selectors.email).value = email;
-        document.querySelector(selectors.password).value = password;
-        document.querySelector(selectors.submit).click();
+        const emailEl = document.querySelector(selectors.email);
+        const passwordEl = document.querySelector(selectors.password);
+        const submitEl = document.querySelector(selectors.submit);
+        
+        if (!emailEl || !passwordEl || !submitEl) {
+          return { success: false, error: 'Login form elements not found' };
+        }
+        
+        emailEl.value = email;
+        passwordEl.value = password;
+        submitEl.click();
+        return { success: true };
       },
       EC_FORCE_SELECTORS.login,
       this.credentials.admin_email,
       this.credentials.admin_password
     );
 
-    // Wait for navigation
+    if (!loginResult.success) {
+      await this.takeScreenshot("login_form_error.png", 'error');
+      throw new CrawlerError(
+        `Login form error: ${loginResult.error}`,
+        ErrorCodes.LOGIN_FAILED,
+        500
+      );
+    }
+
+    // Wait for navigation with timeout
     await this.page
-      .waitForNavigation({ waitUntil: "networkidle2", timeout: 5000 })
+      .waitForNavigation({ waitUntil: "networkidle2", timeout: 10000 })
       .catch(() => {
         // Navigation timeout expected if already on page
       });
@@ -505,7 +623,7 @@ class EcForceOrderCrawler extends BaseCrawler {
     );
 
     if (!hasSuccess) {
-      await this.takeScreenshot("login_failed.png");
+      await this.takeScreenshot("login_failed.png", 'error');
       throw new CrawlerError(
         "Login failed - invalid credentials or page structure changed",
         ErrorCodes.LOGIN_FAILED,
@@ -517,14 +635,40 @@ class EcForceOrderCrawler extends BaseCrawler {
   }
 
   /**
+   * Mask email for logging
+   * @private
+   */
+  _maskEmail(email) {
+    if (!email || typeof email !== 'string') return '***';
+    const match = email.match(/^(.{2}).*(@.+)$/);
+    return match ? `${match[1]}***${match[2]}` : '***@***';
+  }
+
+  /**
    * Navigate to order form.
    */
   async navigateToOrderForm() {
     const customerId = this.formData.customer_id;
-    logger.info(`Step 2: Navigating to order form - customerId: ${customerId}`);
+    
+    // Sanitize customer ID to prevent injection
+    let sanitizedCustomerId;
+    try {
+      sanitizedCustomerId = sanitizeCustomerId(customerId);
+    } catch (error) {
+      throw new CrawlerError(
+        `Invalid customer_id: ${error.message}`,
+        ErrorCodes.VALIDATION_ERROR,
+        400
+      );
+    }
+    
+    logger.info(`Step 2: Navigating to order form - customerId: ${sanitizedCustomerId}`);
 
-    const orderFormUrl = `${this.shopUrl}/admin/oi/order/new?customer_id=${customerId}`;
-    await this.page.goto(orderFormUrl, {
+    // Build URL safely using URL constructor
+    const orderFormUrl = new URL(`${this.shopUrl}/admin/oi/order/new`);
+    orderFormUrl.searchParams.set('customer_id', sanitizedCustomerId);
+    
+    await this.page.goto(orderFormUrl.toString(), {
       waitUntil: "load",
       timeout: this.options.timeout,
     });
@@ -533,9 +677,9 @@ class EcForceOrderCrawler extends BaseCrawler {
     if (
       !(await this.elementExists(EC_FORCE_SELECTORS.orderForm.addItem, 5000))
     ) {
-      await this.takeScreenshot("order_form_not_found.png");
+      await this.takeScreenshot("order_form_not_found.png", 'error');
       throw new CrawlerError(
-        `Order form not found - customer_id ${customerId} may be invalid`,
+        `Order form not found - customer_id ${sanitizedCustomerId} may be invalid`,
         ErrorCodes.BROWSER_NAVIGATION_FAILED,
         404
       );

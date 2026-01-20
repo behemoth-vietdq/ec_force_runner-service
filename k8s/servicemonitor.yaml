@@ -1,0 +1,101 @@
+# =============================================================================
+# ServiceMonitor for Prometheus Operator
+# Enables automatic Prometheus scraping
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: line-shop-runner-monitor
+  namespace: line-shop
+  labels:
+    app.kubernetes.io/name: line-shop-runner
+    app.kubernetes.io/component: monitoring
+    # Label for Prometheus to discover this ServiceMonitor
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: line-shop-runner
+  namespaceSelector:
+    matchNames:
+      - line-shop
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      scheme: http
+
+---
+# =============================================================================
+# PrometheusRule for alerting
+# =============================================================================
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: line-shop-runner-alerts
+  namespace: line-shop
+  labels:
+    app.kubernetes.io/name: line-shop-runner
+    app.kubernetes.io/component: alerting
+    release: prometheus
+spec:
+  groups:
+    - name: line-shop-runner.rules
+      rules:
+        # High error rate alert
+        - alert: LineShopRunnerHighErrorRate
+          expr: |
+            sum(rate(http_request_total{app="line-shop-runner-service",status_code=~"5.."}[5m])) 
+            / sum(rate(http_request_total{app="line-shop-runner-service"}[5m])) > 0.05
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High error rate on Line Shop Runner"
+            description: "Error rate is above 5% for the last 5 minutes"
+        
+        # High latency alert
+        - alert: LineShopRunnerHighLatency
+          expr: |
+            histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{app="line-shop-runner-service"}[5m])) by (le)) > 30
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High latency on Line Shop Runner"
+            description: "95th percentile latency is above 30 seconds"
+        
+        # Crawler failures alert
+        - alert: LineShopRunnerCrawlerFailures
+          expr: |
+            sum(rate(crawler_errors_total{app="line-shop-runner-service"}[5m])) > 0.1
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Crawler failures detected"
+            description: "Crawler error rate is elevated"
+        
+        # Pod not ready alert
+        - alert: LineShopRunnerPodNotReady
+          expr: |
+            kube_pod_status_ready{namespace="line-shop",pod=~"line-shop-runner.*"} == 0
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "Line Shop Runner pod not ready"
+            description: "Pod {{ $labels.pod }} has been not ready for 5 minutes"
+        
+        # High memory usage alert
+        - alert: LineShopRunnerHighMemory
+          expr: |
+            container_memory_usage_bytes{namespace="line-shop",container="line-shop-runner"} 
+            / container_spec_memory_limit_bytes{namespace="line-shop",container="line-shop-runner"} > 0.9
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "High memory usage on Line Shop Runner"
+            description: "Memory usage is above 90% of limit"
