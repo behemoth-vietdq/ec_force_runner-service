@@ -1,0 +1,48 @@
+# =============================================================================
+# Service for Line Shop Runner
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: line-shop-runner
+  namespace: line-shop
+  labels:
+    app.kubernetes.io/name: line-shop-runner
+    app.kubernetes.io/component: api
+  annotations:
+    # Prometheus service discovery
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "4000"
+    prometheus.io/path: "/metrics"
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: line-shop-runner
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+      protocol: TCP
+
+---
+# =============================================================================
+# Headless Service for direct pod access (optional)
+# =============================================================================
+apiVersion: v1
+kind: Service
+metadata:
+  name: line-shop-runner-headless
+  namespace: line-shop
+  labels:
+    app.kubernetes.io/name: line-shop-runner
+    app.kubernetes.io/component: api
+spec:
+  type: ClusterIP
+  clusterIP: None
+  selector:
+    app.kubernetes.io/name: line-shop-runner
+  ports:
+    - name: http
+      port: 4000
+      targetPort: http
+      protocol: TCP

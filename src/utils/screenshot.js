@@ -2,6 +2,7 @@ const path = require("path");
 const fs = require("fs");
 const config = require("../config");
 const logger = require("./logger");
+const { getErrorMessage } = require("./logger");
 const { retryWithBackoff } = require("./retry");
 
 // Google Cloud Storage client (lazy init)

@@ -1,0 +1,106 @@
+# =============================================================================
+# Ingress for Line Shop Runner Service
+# Configure based on your ingress controller (nginx, traefik, etc.)
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: line-shop-runner-ingress
+  namespace: line-shop
+  labels:
+    app.kubernetes.io/name: line-shop-runner
+    app.kubernetes.io/component: ingress
+  annotations:
+    # Nginx ingress controller annotations
+    kubernetes.io/ingress.class: nginx
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "300"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    
+    # Rate limiting at ingress level (optional)
+    # nginx.ingress.kubernetes.io/limit-rps: "10"
+    # nginx.ingress.kubernetes.io/limit-connections: "5"
+    
+    # TLS with cert-manager (optional)
+    # cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  # TLS configuration
+  tls:
+    - hosts:
+        - runner.your-domain.com
+      secretName: line-shop-runner-tls
+  
+  rules:
+    - host: runner.your-domain.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: line-shop-runner
+                port:
+                  name: http
+
+---
+# =============================================================================
+# NetworkPolicy - Restrict traffic to/from the service
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: line-shop-runner-network-policy
+  namespace: line-shop
+  labels:
+    app.kubernetes.io/name: line-shop-runner
+    app.kubernetes.io/component: network-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: line-shop-runner
+  policyTypes:
+    - Ingress
+    - Egress
+  
+  ingress:
+    # Allow traffic from ingress controller
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 4000
+    
+    # Allow traffic from Prometheus for scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 4000
+  
+  egress:
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector: {}
+      ports:
+        - protocol: UDP
+          port: 53
+    
+    # Allow HTTPS traffic (for EC-Force, LINE API, GCS)
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 80

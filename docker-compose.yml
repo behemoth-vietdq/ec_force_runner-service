@@ -1,27 +1,94 @@
+# =============================================================================
+# Docker Compose for Line Shop Runner Service
+# Usage: docker-compose up -d
+# =============================================================================
+
 services:
   line-shop-runner:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - NODE_ENV=production
     container_name: line-shop-runner-service
     ports:
       - "4000:4000"
     environment:
+      # Application settings
       - APP_ENV=production
       - APP_PORT=4000
+      - APP_HOST=0.0.0.0
+      
+      # API Key - REQUIRED (generate with: openssl rand -hex 32)
+      - API_KEY=${API_KEY:-your-secure-api-key-here}
+      
+      # CORS origin
+      - CORS_ORIGIN=${CORS_ORIGIN:-http://localhost:3000}
+      
+      # Crawler settings
       - CRAWLER_DEBUGGING=false
+      - SCREENSHOTS_DISABLED=false
+      
+      # Logging
+      - LOG_LEVEL=info
+      - LOG_FORMAT=json
+      
+      # Metrics
+      - METRICS_DISABLED=false
+      - METRICS_PATH=/metrics
+      
+      # Rate limiting
+      - DISABLE_RATE_LIMIT=false
+      - RATE_LIMIT_WINDOW_MS=60000
+      - RATE_LIMIT_MAX_REQUESTS=60
+      
+      # GCS (optional - uncomment if using)
+      # - GCS_BUCKET_NAME=${GCS_BUCKET_NAME}
+      # - GCS_PROJECT_ID=${GCS_PROJECT_ID}
+      # - GCS_KEY_FILE=/app/secrets/gcs-key.json
+    
     volumes:
       - ./logs:/app/logs
       - ./screenshots:/app/screenshots
+      # GCS credentials (optional)
+      # - ./secret:/app/secrets:ro
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 2G
+        reservations:
+          cpus: '0.25'
+          memory: 512M
+    
+    # Security options
+    security_opt:
+      - no-new-privileges:true
+    
+    # Read-only root filesystem (Puppeteer needs /tmp writable)
+    # read_only: true
+    tmpfs:
+      - /tmp:size=256M,mode=1777
+    
     restart: unless-stopped
+    
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:4000/healthz"]
+      test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:4000/healthz', (r) => process.exit(r.statusCode === 200 ? 0 : 1)).on('error', () => process.exit(1))"]
       interval: 30s
-      timeout: 10s
+      timeout: 15s
       retries: 3
-      start_period: 40s
+      start_period: 60s
+    
     networks:
       - line-shop-network
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   line-shop-network:

@@ -5,9 +5,15 @@
 
 const client = require('prom-client');
 const logger = require('./logger');
+const { getErrorMessage } = require('./logger');
 
 // Create a Registry
 const register = new client.Registry();
+
+// Add default labels
+register.setDefaultLabels({
+  app: 'line-shop-runner-service',
+});
 
 // Add default metrics (CPU, memory, event loop, etc.)
 client.collectDefaultMetrics({
